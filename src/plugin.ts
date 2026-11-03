@@ -1,0 +1,100 @@
+import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
+
+import { isAllowed, SandboxRefused } from './guard.js'
+import { removeSandbox } from './remove.js'
+import { defaultSlugs, MARKER, runSandbox } from './run.js'
+import type { SandboxOptions } from './types.js'
+
+const INTERNAL = new Set(['payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
+
+/** The marker every sandbox document carries; only the sandbox itself can set it. */
+const markerField = (): Field => ({
+  name: MARKER,
+  type: 'checkbox',
+  index: true,
+  access: { create: ({ req }) => Boolean((req.context as { sandbox?: unknown })?.sandbox), update: () => false },
+  admin: { position: 'sidebar', readOnly: true, condition: (data) => Boolean(data?.[MARKER]), description: 'Sandbox: generated test data, never real.' },
+})
+
+/**
+ * Sandbox: coverage-first test data for any Payload site. Install it everywhere with the
+ * same options: where `allow()` is false (production) it generates nothing, hides its
+ * admin, and warns at start-up if sandbox data is ever found.
+ */
+export const sandboxPlugin =
+  (options: SandboxOptions = {}): Plugin =>
+  (config: Config): Config => {
+    const slugs = defaultSlugs(options)
+    const allowedNow = Boolean(options.allow?.())
+    const access = async ({ req }: { req: Parameters<NonNullable<SandboxOptions['access']>>[0] }) => Boolean(allowedNow && req.user && (await options.access?.(req)))
+    const endpoints: Endpoint[] = [
+      {
+        path: '/run',
+        method: 'post',
+        handler: async (req) => {
+          if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
+          const body = (await req.json?.().catch(() => ({}))) as { seed?: string; collections?: string[]; name?: string }
+          try {
+            const report = await runSandbox(req.payload, options, body ?? {})
+            return Response.json(report)
+          } catch (e) {
+            return Response.json({ error: (e as Error).message }, { status: e instanceof SandboxRefused ? 403 : 500 })
+          }
+        },
+      },
+      {
+        path: '/remove',
+        method: 'post',
+        handler: async (req) => {
+          if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
+          const body = (await req.json?.().catch(() => ({}))) as { batch?: string; collection?: string }
+          return Response.json(await removeSandbox(req.payload, options, body ?? {}))
+        },
+      },
+    ]
+    const batches: CollectionConfig = {
+      slug: slugs.batches,
+      labels: { singular: 'Sandbox batch', plural: 'Sandbox batches' },
+      admin: { group: 'Sandbox', hidden: !allowedNow, useAsTitle: 'name', defaultColumns: ['name', 'status', 'seed', 'createdAt'], description: 'Generated test data. Remove a batch to delete everything it created.' },
+      access: { read: access, create: () => false, update: () => false, delete: access },
+      endpoints,
+      fields: [
+        { name: 'name', type: 'text', required: true },
+        { name: 'seed', type: 'text', admin: { description: 'Same seed, same data.' } },
+        { name: 'status', type: 'select', options: ['running', 'done', 'done-with-failures', 'failed'].map((v) => ({ label: v, value: v })) },
+        { name: 'selection', type: 'json' },
+        { name: 'report', type: 'json', admin: { description: 'Coverage per collection, and every document the site refused (with why).' } },
+      ],
+    }
+    const records: CollectionConfig = {
+      slug: slugs.records,
+      labels: { singular: 'Sandbox record', plural: 'Sandbox records' },
+      admin: { group: 'Sandbox', hidden: true },
+      access: { read: access, create: () => false, update: () => false, delete: () => false },
+      fields: [
+        { name: 'batch', type: 'relationship', relationTo: slugs.batches as never, index: true },
+        { name: 'collection', type: 'text', index: true },
+        { name: 'docId', type: 'text', index: true },
+        { name: 'order', type: 'number' },
+      ],
+    }
+    const collections = (config.collections ?? []).map((c) => (INTERNAL.has(c.slug) ? c : { ...c, fields: [...c.fields, markerField()] }))
+    return {
+      ...config,
+      collections: [...collections, batches, records],
+      onInit: async (payload) => {
+        await config.onInit?.(payload)
+        if (isAllowed(payload, options)) return
+        // Where the sandbox is refused (production), sandbox data must never exist.
+        for (const c of collections) {
+          if (INTERNAL.has(c.slug)) continue
+          try {
+            const { totalDocs } = await payload.count({ collection: c.slug as never, where: { [MARKER]: { equals: true } } as never, overrideAccess: true })
+            if (totalDocs) payload.logger.error(`Sandbox data found in “${c.slug}” (${totalDocs}) where the sandbox is not allowed. Remove it with removeSandbox().`)
+          } catch {
+            /* collection without a database table yet */
+          }
+        }
+      },
+    }
+  }

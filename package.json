@@ -1,0 +1,58 @@
+{
+  "name": "@captiveorigins/payload-plugin-sandbox",
+  "version": "0.1.0",
+  "description": "Realistic, coverage-first test data for Payload: reads your schema, fills every collection in dependency order so each option, empty and full case and relationship shape appears, tracks every record for one-click removal, and refuses to run in production.",
+  "homepage": "https://github.com/mgilardi/payload-plugin-sandbox#readme",
+  "bugs": {
+    "url": "https://github.com/mgilardi/payload-plugin-sandbox/issues"
+  },
+  "keywords": [
+    "payload",
+    "payload-plugin",
+    "payloadcms",
+    "seed",
+    "fake-data",
+    "test-data",
+    "sandbox",
+    "pairwise"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mgilardi/payload-plugin-sandbox.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test"
+  },
+  "peerDependencies": {
+    "payload": "^3.80.0"
+  },
+  "devDependencies": {
+    "@payloadcms/db-mongodb": "3.92.1",
+    "@types/node": "^24.0.0",
+    "payload": "3.92.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
