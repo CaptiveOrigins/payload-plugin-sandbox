@@ -1,7 +1,7 @@
 import type { CollectionConfig, Payload } from 'payload'
 import { describe, expect, it } from 'vitest'
 
-import { assertAllowed, buildDoc, creationOrder, databaseName, dimensionsFor, pairCoverage, pairwise, random, readCollection, sandboxPlugin, withDependencies } from '../src'
+import { assertAllowed, buildDoc, creationOrder, databaseName, dimensionsFor, pairCoverage, pairwise, random, readCollection, sandboxPlugin, withDependencies } from '../src/index.js'
 
 const animals: CollectionConfig = {
   slug: 'animals',

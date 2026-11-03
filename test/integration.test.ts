@@ -2,7 +2,7 @@ import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { buildConfig, getPayload, type CollectionConfig, type Payload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { removeSandbox, runSandbox, sandboxPlugin, type SandboxOptions } from '../src'
+import { removeSandbox, runSandbox, sandboxPlugin, type SandboxOptions } from '../src/index.js'
 
 /** A real Payload on a throwaway MongoDB database (MONGODB_URL, default the local test container). */
 const BASE = process.env.MONGODB_URL ?? 'mongodb://127.0.0.1:27018/?directConnection=true'
@@ -73,7 +73,7 @@ describe('a real sandbox run', () => {
     const withParents = docs.filter((d) => ((d as { parents?: unknown[] }).parents ?? []).length)
     expect(withParents.length).toBeGreaterThan(docs.length / 2)
     expect(withParents.length).toBeLessThan(docs.length)
-    const user = (await payload.find({ collection: 'users', limit: 1 })).docs[0] as { email: string }
+    const user = (await payload.find({ collection: 'users', limit: 1 })).docs[0] as unknown as { email: string }
     expect(user.email).toMatch(/@example\.invalid$/)
   })
 
