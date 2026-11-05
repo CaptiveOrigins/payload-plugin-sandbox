@@ -35,8 +35,27 @@ Run it from a script (`runSandbox(payload, options, { seed: 'demo', collections:
 - Databases whose name contains "prod" are refused unless listed in `allowDatabases`.
 - Every generated document carries a read-only `sandbox` marker that only the sandbox can set. Where the sandbox is not allowed, start-up logs an error if any marked document exists (for example after copying a test database).
 
-## Roadmap
+## Plans, people and the admin area
 
-Admin panel (plan, run, coverage report, remove), personas with stories for auth collections, "Sign in as" for sandbox accounts, AI-written plans and text (optional, with your key), background jobs for large runs.
+Where the sandbox is allowed, the admin gets a **Sandbox** area: write a plan, read it, run it, read the coverage and what your site refused, sign in as one of its people, and remove it in one step.
+
+- **Plans.** A plan says which collections to fill, with sample wording and people. With `ai` set, a model writes it (it sees the shape of your schema, never documents; everything it returns is checked against the schema). Without it, or if it fails, you get a plain plan. Nothing is created until you press Run.
+- **People.** Personas are fictional accounts with a story of what to try. Give your own (`personas`), let AI plans suggest more, and turn their `traits` into roles in a recipe (`ctx.persona`).
+- **Sign in as.** A real session as a sandbox account, for whoever `access` allows, wherever the sandbox is allowed. Only accounts the sandbox made qualify; real accounts are out of reach.
+- **Long runs.** Set `defer` (in Next.js, `(task) => after(task)`) and the admin doesn't wait; for runs longer than a request may last, call `runSandbox` from a script.
+
+```ts
+sandboxPlugin({
+  allow: () => process.env.APP_ENV !== 'prod',
+  access: (req) => Boolean(req.user?.roles?.includes('admin')),
+  only: ['users', 'animals'],                                  // generate just these
+  existing: { sites: { where: { slug: { equals: 'main' } } } }, // refer to these, never generate them
+  around: (task) => withoutEmail(task),                         // wrap every run and removal
+  personas: [{ collection: 'users', name: 'New Keeper', story: 'Has no animals yet. Try adding one.', traits: ['member'] }],
+  ai: async ({ system, prompt, schema }) => yourModel({ system, prompt, schema }), // returns JSON
+})
+```
+
+After installing, run `payload generate:importmap` so the admin finds the Sandbox screen.
 
 MIT licensed.

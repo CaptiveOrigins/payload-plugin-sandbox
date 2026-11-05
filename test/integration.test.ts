@@ -89,3 +89,106 @@ describe('a real sandbox run', () => {
     await expect(runSandbox(payload, { ...options, allow: () => false })).rejects.toThrow(/not allowed/)
   })
 })
+
+describe('plans, personas and signing in', () => {
+  const planOptions: SandboxOptions = {
+    ...options,
+    about: 'A site for reptile keepers.',
+    personas: [{ collection: 'users', name: 'Site Persona', story: 'Written by the site.', data: { roles: ['keeper'] } }],
+    ai: async ({ prompt }) => {
+      const seen = JSON.parse(prompt) as { site: string; collections: { slug: string; textFields: string[] }[] }
+      expect(seen.site).toBe('A site for reptile keepers.')
+      expect(seen.collections.find((c) => c.slug === 'groups')!.textFields).toEqual(['title'])
+      return {
+        summary: 'A keeper with a few groups.',
+        collections: [
+          { slug: 'groups', note: 'Racks', samples: [{ field: 'title', values: ['Rack A', 'Hatchling tubs'] }, { field: 'nonsense', values: ['x'] }] },
+          { slug: 'nope', note: '', samples: [] },
+        ],
+        personas: [
+          { collection: 'users', name: 'Ana Keeper', story: 'Keeps ten pythons. Try adding a clutch.', traits: ['keeper'] },
+          { collection: 'groups', name: 'Not an account', story: '', traits: [] },
+        ],
+      }
+    },
+  }
+
+  it('an AI plan is checked, then used: its wording and people, never fields that don’t exist', async () => {
+    const { writePlan } = await import('../src/index.js')
+    const plan = await writePlan(payload, planOptions, { collections: ['groups', 'users'] })
+    expect(plan.source).toBe('ai')
+    expect(plan.collections.map((c) => c.slug).sort()).toEqual(['groups', 'users'])
+    expect(plan.collections.find((c) => c.slug === 'groups')!.samples).toEqual({ title: ['Rack A', 'Hatchling tubs'] })
+    expect(plan.personas.map((p) => p.name)).toEqual(['Site Persona', 'Ana Keeper'])
+
+    const report = await runSandbox(payload, planOptions, { seed: 'plan-1', plan })
+    expect(report.failures).toEqual([])
+    expect(report.personas!.map((p) => p.name)).toEqual(['Site Persona', 'Ana Keeper'])
+    expect(report.personas![0]!.email).toMatch(/^site\.persona\.\d+@example\.invalid$/)
+    const titles = (await payload.find({ collection: 'groups', pagination: false, depth: 0 })).docs.map((d) => (d as unknown as { title: string }).title)
+    expect(titles.some((t) => t === 'Rack A' || t === 'Hatchling tubs')).toBe(true)
+    const site = await payload.findByID({ collection: 'users', id: report.personas![0]!.id, depth: 0 })
+    expect((site as { roles?: string[] }).roles).toEqual(['keeper'])
+  })
+
+  it('a failing AI falls back to a plain plan and says why', async () => {
+    const { writePlan } = await import('../src/index.js')
+    const plan = await writePlan(payload, { ...options, ai: async () => { throw new Error('no key') } })
+    expect(plan.source).toBe('plain')
+    expect(plan.aiError).toBe('no key')
+  })
+
+  it('signs in as sandbox accounts only, and only where allowed', async () => {
+    const { signInAs } = await import('../src/index.js')
+    const sandboxUser = (await payload.find({ collection: 'users', where: { sandbox: { equals: true } }, limit: 1 })).docs[0]!
+    const real = await payload.create({ collection: 'users', data: { email: `real-${Date.now()}@example.com`, password: 'a-real-password-1' } })
+    const req = { payload, headers: new Headers() } as never
+    const { cookie } = await signInAs(req, options, 'users', String(sandboxUser.id))
+    expect(cookie).toMatch(/^payload-token=.+; Path=\/; HttpOnly/)
+    const token = /payload-token=([^;]+)/.exec(cookie)![1]!
+    const me = await payload.auth({ headers: new Headers({ Authorization: `JWT ${token}` }) })
+    expect(me.user?.id).toBe(sandboxUser.id)
+    await expect(signInAs(req, options, 'users', String(real.id))).rejects.toThrow(/Only sandbox accounts/)
+    await expect(signInAs(req, { ...options, allow: () => false }, 'users', String(sandboxUser.id))).rejects.toThrow(/not allowed/)
+    await payload.delete({ collection: 'users', id: real.id })
+    await removeSandbox(payload, options)
+  })
+
+  it('offers the admin area only where the sandbox is allowed', async () => {
+    const base = { secret: 'x', db: {} as never, collections: [users] }
+    const on = sandboxPlugin({ allow: () => true })(base as never) as { admin?: { components?: { views?: Record<string, unknown> } } }
+    const off = sandboxPlugin({ allow: () => false })(base as never) as { admin?: { components?: { views?: Record<string, unknown> } } }
+    expect(on.admin?.components?.views?.sandbox).toBeTruthy()
+    expect(off.admin?.components?.views?.sandbox).toBeUndefined()
+  })
+})
+
+describe('sites with their own records', () => {
+  it('refers to existing documents instead of generating them, and generates only what it’s told', async () => {
+    const owner = await payload.create({ collection: 'users', data: { email: `owner-${Date.now()}@example.com`, password: 'a-real-password-1', name: 'Real owner' } })
+    let wrapped = 0
+    const report = await runSandbox(
+      payload,
+      {
+        ...options,
+        recipes: {},
+        only: ['groups'],
+        existing: { users: { where: { id: { equals: owner.id } } } },
+        around: async (task) => {
+          wrapped++
+          return task()
+        },
+      },
+      { seed: 'existing-1' },
+    )
+    expect(report.order).toEqual(['groups'])
+    expect(report.failures).toEqual([])
+    expect(wrapped).toBe(1)
+    const groupsMade = (await payload.find({ collection: 'groups', pagination: false, depth: 0 })).docs as unknown as { owner: string }[]
+    expect(groupsMade.length).toBeGreaterThan(0)
+    expect(new Set(groupsMade.map((g) => g.owner))).toEqual(new Set([owner.id]))
+    await removeSandbox(payload, options)
+    expect((await payload.findByID({ collection: 'users', id: owner.id })).id).toBe(owner.id)
+    await payload.delete({ collection: 'users', id: owner.id })
+  })
+})

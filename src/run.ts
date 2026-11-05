@@ -5,10 +5,11 @@ import { pairCoverage, pairwise } from './coverage.js'
 import { creationOrder, withDependencies } from './graph.js'
 import { assertAllowed } from './guard.js'
 import { buildDoc, dimensionsFor } from './plan.js'
+import { applySamples } from './plans.js'
 import { placeholderPng } from './png.js'
 import { random } from './random.js'
 import { readCollection, type CollectionModel } from './schema.js'
-import type { BatchReport, Failure, RecipeContext, SandboxOptions } from './types.js'
+import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SandboxOptions, SandboxPlan } from './types.js'
 
 export const MARKER = 'sandbox'
 export const defaultSlugs = (o: SandboxOptions) => ({ batches: o.slugs?.batches ?? 'sandbox-batches', records: o.slugs?.records ?? 'sandbox-records' })
@@ -16,8 +17,8 @@ export const defaultSlugs = (o: SandboxOptions) => ({ batches: o.slugs?.batches 
 /** Collections the sandbox may generate: everything except its own, excluded and recipe-skipped ones. */
 export function generatable(collections: readonly CollectionConfig[], options: SandboxOptions): CollectionModel[] {
   const { batches, records } = defaultSlugs(options)
-  const skip = new Set([batches, records, 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders', ...(options.exclude ?? [])])
-  return collections.filter((c) => !skip.has(c.slug) && !options.recipes?.[c.slug]?.skip).map(readCollection)
+  const skip = new Set([batches, records, 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders', ...(options.exclude ?? []), ...Object.keys(options.existing ?? {})])
+  return collections.filter((c) => !skip.has(c.slug) && !options.recipes?.[c.slug]?.skip && (!options.only || options.only.includes(c.slug))).map(readCollection)
 }
 
 const message = (e: unknown) => {
@@ -31,17 +32,28 @@ const message = (e: unknown) => {
  * dependency order, one document per pairwise coverage case, through Payload's Local
  * API (validation and hooks run). Every document is marked and registered for removal.
  */
-export async function runSandbox(payload: Payload, options: SandboxOptions, { seed = String(Date.now()), collections, name }: { seed?: string; collections?: string[]; name?: string } = {}): Promise<BatchReport> {
+export const runSandbox = (payload: Payload, options: SandboxOptions, input: RunInput = {}): Promise<BatchReport> => (options.around ?? ((task) => task()))(() => run(payload, options, input))
+
+type RunInput = { seed?: string; collections?: string[]; name?: string; plan?: SandboxPlan; batch?: string }
+
+async function run(payload: Payload, options: SandboxOptions, { seed = String(Date.now()), collections, name, plan, batch: existing }: RunInput): Promise<BatchReport> {
   assertAllowed(payload, options)
   const slugs = defaultSlugs(options)
   const all = generatable(payload.config.collections, options)
-  const selected = collections?.length ? withDependencies(all, collections) : all.map((m) => m.slug)
+  const chosen = collections?.length ? collections : plan?.collections.map((c) => c.slug)
+  const selected = chosen?.length ? withDependencies(all, chosen) : all.map((m) => m.slug)
   const models = all.filter((m) => selected.includes(m.slug))
   const { order, deferred, cycles } = creationOrder(models)
   const rnd = random(seed)
-  const batchDoc = await payload.create({ collection: slugs.batches as never, data: { name: name ?? `Sandbox ${new Date().toISOString().slice(0, 16)}`, seed, status: 'running', selection: selected } as never, overrideAccess: true })
-  const batch = String(batchDoc.id)
   const pools = new Map<string, string[]>()
+  for (const [collection, query] of Object.entries(options.existing ?? {})) {
+    const { docs } = await payload.find({ collection: collection as never, where: query.where, limit: query.limit ?? 50, depth: 0, overrideAccess: true })
+    pools.set(collection, (docs as unknown as { id: string }[]).map((d) => String(d.id)))
+  }
+  const fields = { seed, status: 'running', selection: selected, ...(plan ? { plan } : {}) }
+  const batch = existing
+    ? String(((await payload.update({ collection: slugs.batches as never, id: existing, data: fields as never, overrideAccess: true })) as unknown as { id: string }).id)
+    : String(((await payload.create({ collection: slugs.batches as never, data: { name: name ?? `Sandbox ${new Date().toISOString().slice(0, 16)}`, ...fields } as never, overrideAccess: true })) as unknown as { id: string }).id)
   const failures: Failure[] = []
   let serial = 0
   let position = 0
@@ -91,16 +103,20 @@ export async function runSandbox(payload: Payload, options: SandboxOptions, { se
   const deferredPaths = new Set(deferred.map((d) => `${d.from}:${d.path}`))
   const reports: BatchReport['collections'] = []
 
+  const personasDone: PersonaReport[] = []
+  const planned = plan?.personas ?? options.personas ?? []
+
   for (const slug of order) {
     const model = models.find((m) => m.slug === slug)!
     const recipe = options.recipes?.[slug]
     const crnd = rnd.fork(slug)
+    const samples = plan?.collections.find((c) => c.slug === slug)?.samples
     const dims = recipe?.dimensions ? recipe.dimensions(dimensionsFor(model)) : dimensionsFor(model)
     const cases = pairwise(dims, crnd, { maxCases: recipe?.maxCases ?? 40 })
     const before = failures.length
     let created = 0
-    for (const c of cases) {
-      const ctx = {
+    const ctxFor = () => ({
+
         rnd: crnd,
         serial: () => ++serial,
         emailDomain,
@@ -115,8 +131,22 @@ export async function runSandbox(payload: Payload, options: SandboxOptions, { se
           return out
         },
         defer: (path: string) => deferredPaths.has(`${slug}:${path}`),
+    })
+    // The people to sign in as come first, so other records can belong to them.
+    for (const persona of model.auth ? planned.filter((p: Persona) => p.collection === slug) : []) {
+      const email = `${persona.name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'persona'}.${++serial}@${emailDomain}`
+      let data: Record<string, unknown> | null = { ...buildDoc(model, {}, ctxFor()), name: persona.name, ...(persona.data ?? {}), email }
+      if (recipe?.prepare) data = await recipe.prepare(data, { ...baseCtx, rnd: crnd, case: {}, persona })
+      if (!data) continue
+      const id = await create(slug, data)
+      if (id) {
+        created++
+        personasDone.push({ ...persona, id, email: String(data.email ?? email) })
       }
-      let data: Record<string, unknown> | null = buildDoc(model, c, ctx)
+    }
+    for (const c of cases) {
+      const ctx = ctxFor()
+      let data: Record<string, unknown> | null = applySamples(buildDoc(model, c, ctx), samples, (v) => crnd.pick(v), (path) => c[path])
       if (recipe?.prepare) data = await recipe.prepare(data, { ...baseCtx, rnd: crnd, case: c })
       if (!data) continue
       const n = failures.length
@@ -124,14 +154,14 @@ export async function runSandbox(payload: Payload, options: SandboxOptions, { se
       if (id) created++
       else failures[n] = { ...failures[n]!, case: c }
     }
-    reports.push({ collection: slug, created, cases: cases.length, dimensions: dims.length, pairs: pairCoverage(dims, cases), failures: failures.length - before })
+    reports.push({ collection: slug, created, cases: cases.length + (model.auth ? planned.filter((p: Persona) => p.collection === slug).length : 0), dimensions: dims.length, pairs: pairCoverage(dims, cases), failures: failures.length - before })
   }
 
   // Second pass: self-references and deferred links make shapes (multi-generation chains with gaps).
   for (const d of deferred) {
     const ids = pools.get(d.from) ?? []
     const targets = pools.get(d.to) ?? []
-    if (!ids.length || !targets.length || d.path.includes('[]')) continue
+    if (!ids.length || !targets.length || d.path.includes('[]') || options.recipes?.[d.from]?.noLinks?.includes(d.path)) continue
     const hasMany = Boolean(models.find((m) => m.slug === d.from)?.fields.find((f) => f.path === d.path)?.hasMany)
     for (let i = 0; i < ids.length; i++) {
       if (i % 5 === 4) continue // a missing link every fifth record
@@ -146,7 +176,7 @@ export async function runSandbox(payload: Payload, options: SandboxOptions, { se
   }
   for (const slug of order) await options.recipes?.[slug]?.after?.(baseCtx as Omit<RecipeContext, 'case'>)
 
-  const report: BatchReport = { batch, seed, order, collections: reports, failures, cycles }
+  const report: BatchReport = { batch, seed, order, personas: personasDone, collections: reports, failures, cycles }
   await payload.update({ collection: slugs.batches as never, id: batch, data: { status: failures.length ? 'done-with-failures' : 'done', report } as never, overrideAccess: true })
   return report
 }

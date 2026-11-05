@@ -1,9 +1,11 @@
 import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 
-import { isAllowed, SandboxRefused } from './guard.js'
+import { assertAllowed, isAllowed, SandboxRefused } from './guard.js'
+import { writePlan } from './plans.js'
 import { removeSandbox } from './remove.js'
 import { defaultSlugs, MARKER, runSandbox } from './run.js'
-import type { SandboxOptions } from './types.js'
+import { signInAs, SignInRefused } from './signIn.js'
+import type { SandboxOptions, SandboxPlan } from './types.js'
 
 const INTERNAL = new Set(['payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
 
@@ -29,13 +31,44 @@ export const sandboxPlugin =
     const access = async ({ req }: { req: Parameters<NonNullable<SandboxOptions['access']>>[0] }) => Boolean(allowedNow && req.user && (await options.access?.(req)))
     const endpoints: Endpoint[] = [
       {
+        // Writes a plan to review; nothing is generated yet. The plan is stored as a batch waiting to run.
+        path: '/plan',
+        method: 'post',
+        handler: async (req) => {
+          if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
+          const body = ((await req.json?.().catch(() => ({}))) ?? {}) as { collections?: string[]; useAi?: boolean; name?: string }
+          const { aiError, ...plan } = await writePlan(req.payload, options, body)
+          const batch = await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Plan ${new Date().toISOString().slice(0, 16)}`, status: 'planned', plan } as never, overrideAccess: true })
+          return Response.json({ batch: batch.id, plan, ...(aiError ? { aiError } : {}) })
+        },
+      },
+      {
         path: '/run',
         method: 'post',
         handler: async (req) => {
           if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
-          const body = (await req.json?.().catch(() => ({}))) as { seed?: string; collections?: string[]; name?: string }
+          const body = ((await req.json?.().catch(() => ({}))) ?? {}) as { seed?: string; collections?: string[]; name?: string; batch?: string }
           try {
-            const report = await runSandbox(req.payload, options, body ?? {})
+            let plan: SandboxPlan | undefined
+            if (body.batch) {
+              const doc = (await req.payload.findByID({ collection: slugs.batches as never, id: body.batch, depth: 0, overrideAccess: true })) as unknown as { status?: string; plan?: SandboxPlan }
+              if (doc.status !== 'planned') return Response.json({ error: 'That plan has already run.' }, { status: 409 })
+              plan = doc.plan
+            }
+            assertAllowed(req.payload, options)
+            if (options.defer) {
+              const batch = body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Sandbox ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
+              await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
+              options.defer(async () => {
+                try {
+                  await runSandbox(req.payload, options, { ...body, batch, plan })
+                } catch (e) {
+                  await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'failed', report: { error: (e as Error).message } } as never, overrideAccess: true })
+                }
+              })
+              return Response.json({ batch, status: 'running' }, { status: 202 })
+            }
+            const report = await runSandbox(req.payload, options, { ...body, plan })
             return Response.json(report)
           } catch (e) {
             return Response.json({ error: (e as Error).message }, { status: e instanceof SandboxRefused ? 403 : 500 })
@@ -51,6 +84,21 @@ export const sandboxPlugin =
           return Response.json(await removeSandbox(req.payload, options, body ?? {}))
         },
       },
+      {
+        path: '/sign-in-as',
+        method: 'post',
+        handler: async (req) => {
+          if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
+          const body = ((await req.json?.().catch(() => ({}))) ?? {}) as { collection?: string; id?: string }
+          try {
+            const { cookie, user } = await signInAs(req, options, String(body.collection ?? ''), String(body.id ?? ''))
+            return new Response(JSON.stringify({ ok: true, user }), { status: 200, headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } })
+          } catch (e) {
+            if (e instanceof SignInRefused) return Response.json({ error: e.message }, { status: 403 })
+            throw e
+          }
+        },
+      },
     ]
     const batches: CollectionConfig = {
       slug: slugs.batches,
@@ -61,8 +109,9 @@ export const sandboxPlugin =
       fields: [
         { name: 'name', type: 'text', required: true },
         { name: 'seed', type: 'text', admin: { description: 'Same seed, same data.' } },
-        { name: 'status', type: 'select', options: ['running', 'done', 'done-with-failures', 'failed'].map((v) => ({ label: v, value: v })) },
+        { name: 'status', type: 'select', options: ['planned', 'running', 'done', 'done-with-failures', 'failed'].map((v) => ({ label: v, value: v })) },
         { name: 'selection', type: 'json' },
+        { name: 'plan', type: 'json', admin: { description: 'What a run will do: wording, personas and which collections.' } },
         { name: 'report', type: 'json', admin: { description: 'Coverage per collection, and every document the site refused (with why).' } },
       ],
     }
@@ -79,8 +128,19 @@ export const sandboxPlugin =
       ],
     }
     const collections = (config.collections ?? []).map((c) => (INTERNAL.has(c.slug) ? c : { ...c, fields: [...c.fields, markerField()] }))
+    const components = config.admin?.components ?? {}
     return {
       ...config,
+      admin: allowedNow
+        ? {
+            ...config.admin,
+            components: {
+              ...components,
+              afterNavLinks: [...(components.afterNavLinks ?? []), '@captiveorigins/payload-plugin-sandbox/rsc#SandboxNavLink'],
+              views: { ...components.views, sandbox: { Component: { path: '@captiveorigins/payload-plugin-sandbox/rsc#SandboxView', serverProps: { sandboxAccess: options.access, sandboxOnly: options.only, sandboxHidden: [...(options.exclude ?? []), ...Object.keys(options.existing ?? {})] } }, path: '/sandbox' } },
+            },
+          }
+        : config.admin,
       collections: [...collections, batches, records],
       onInit: async (payload) => {
         await config.onInit?.(payload)
