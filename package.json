@@ -2,9 +2,9 @@
   "name": "@captiveorigins/payload-plugin-sandbox",
   "version": "0.2.0",
   "description": "Realistic, coverage-first test data for Payload: reads your schema, fills every collection in dependency order so each option, empty and full case and relationship shape appears, tracks every record for one-click removal, and refuses to run in production.",
-  "homepage": "https://github.com/mgilardi/payload-plugin-sandbox#readme",
+  "homepage": "https://github.com/CaptiveOrigins/payload-plugin-sandbox#readme",
   "bugs": {
-    "url": "https://github.com/mgilardi/payload-plugin-sandbox/issues"
+    "url": "https://github.com/CaptiveOrigins/payload-plugin-sandbox/issues"
   },
   "keywords": [
     "payload",
@@ -19,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mgilardi/payload-plugin-sandbox.git"
+    "url": "git+https://github.com/CaptiveOrigins/payload-plugin-sandbox.git"
   },
   "type": "module",
   "exports": {
