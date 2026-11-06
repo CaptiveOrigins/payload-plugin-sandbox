@@ -1,6 +1,6 @@
 {
   "name": "@captiveorigins/payload-plugin-sandbox",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Realistic, coverage-first test data for Payload: reads your schema, fills every collection in dependency order so each option, empty and full case and relationship shape appears, tracks every record for one-click removal, and refuses to run in production.",
   "homepage": "https://github.com/CaptiveOrigins/payload-plugin-sandbox#readme",
   "bugs": {
