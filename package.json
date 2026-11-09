@@ -63,16 +63,19 @@
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "3.92.1",
-    "@types/node": "^24.0.0",
-    "payload": "3.92.1",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0",
     "@payloadcms/next": "3.92.1",
     "@payloadcms/ui": "3.92.1",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
-    "next": "16.3.3",
+    "graphql": "^16.14.2",
+    "next": "16.4.5",
+    "payload": "3.92.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "graphql": "^16.14.2"
+    "typescript": "^5.9.0",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "dompurify": "^3.4.17"
   }
 }
