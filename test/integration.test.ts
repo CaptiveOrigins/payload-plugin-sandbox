@@ -281,6 +281,17 @@ describe('the batch id on the marker (0.4.0)', () => {
     await payload.delete({ collection: 'users', id: real.id })
   })
 
+  it('counts draft-only seeded documents as seeded when removing through the register', async () => {
+    const legacy: SeedOptions = { ...options, register: 'records' }
+    const report = await runSeed(payload, legacy, { seed: 'records-3', collections: ['animals'] })
+    const drafts = (await payload.count({ collection: 'animals', where: { and: [{ sandbox: { equals: true } }, { _status: { equals: 'draft' } }] }, draft: true } as never)).totalDocs
+    expect(drafts).toBeGreaterThan(0)
+    const result = await removeSeed(payload, legacy, { batch: report.batch })
+    expect(result.notSeeded).toEqual([])
+    expect(result.failed).toEqual([])
+    expect((await payload.count({ collection: 'animals', where: { sandbox: { equals: true } }, draft: true } as never)).totalDocs).toBe(0)
+  })
+
   it('adopts a document a recipe made itself, so removal takes it too', async () => {
     const adopting: SeedOptions = {
       ...options,
