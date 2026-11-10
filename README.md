@@ -37,6 +37,12 @@ Run it from a script (`runSeed(payload, options, { seed: 'demo', collections: ['
 - Databases whose name contains "prod" are refused unless listed in `allowDatabases`.
 - Every generated document carries a read-only `sandbox` marker that only Seed can set. Where seeding is not allowed, start-up logs an error if any marked document exists (for example after copying a test database).
 
+## Where a batch is remembered
+
+Since 0.4.0 each seeded document carries its batch id beside the marker (`sandboxBatch`), and removal finds documents by it: collections in reverse dependency order, newest first within one. There's no register document per record, which matters at scale (about 0.4 KB saved per record, so tens of MB on a big world). Set `register: 'records'` to keep the old register. Batches made either way can still be removed. A recipe that creates documents itself adopts them into the batch with `ctx.track(collection, id)`.
+
+On a database with automatic indexing off, build the new `sandboxBatch` index the way you build your others.
+
 ## Plans, people and the admin area
 
 Where seeding is allowed, the admin gets a **Seed** area: write a plan, read it, run it, read the coverage and what your site refused, sign in as one of its people, and remove it in one step.

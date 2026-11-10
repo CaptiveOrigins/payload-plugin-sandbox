@@ -192,3 +192,50 @@ describe('sites with their own records', () => {
     await payload.delete({ collection: 'users', id: owner.id })
   })
 })
+
+describe('the batch id on the marker (0.4.0)', () => {
+  it('writes no register documents, puts the batch on every document, and removes one batch without touching another', async () => {
+    const first = await runSeed(payload, options, { seed: 'marker-1', collections: ['users', 'groups'] })
+    const second = await runSeed(payload, options, { seed: 'marker-2', collections: ['users', 'groups'] })
+    expect((await payload.count({ collection: 'sandbox-records' as never })).totalDocs).toBe(0)
+    const groups = (await payload.find({ collection: 'groups', pagination: false, depth: 0 })).docs as unknown as { sandboxBatch?: string }[]
+    expect(new Set(groups.map((g) => g.sandboxBatch))).toEqual(new Set([first.batch, second.batch]))
+    const result = await removeSeed(payload, options, { batch: first.batch })
+    expect(result.failed).toEqual([])
+    const left = (await payload.find({ collection: 'groups', pagination: false, depth: 0 })).docs as unknown as { sandboxBatch?: string }[]
+    expect(left.length).toBeGreaterThan(0)
+    expect(left.every((g) => g.sandboxBatch === second.batch)).toBe(true)
+    await removeSeed(payload, options)
+    for (const c of ['users', 'groups'] as const) expect([c, (await payload.count({ collection: c, where: { sandbox: { equals: true } } })).totalDocs]).toEqual([c, 0])
+    expect((await payload.count({ collection: 'sandbox-batches' as never })).totalDocs).toBe(0)
+  })
+
+  it('still keeps a register when asked, and removes it the same way', async () => {
+    const legacy: SeedOptions = { ...options, register: 'records' }
+    const report = await runSeed(payload, legacy, { seed: 'records-1', collections: ['users'] })
+    expect((await payload.count({ collection: 'sandbox-records' as never })).totalDocs).toBe(report.collections[0]!.created)
+    expect(((await payload.find({ collection: 'users', where: { sandbox: { equals: true } }, limit: 1, depth: 0 })).docs[0] as { sandboxBatch?: string }).sandboxBatch).toBeFalsy()
+    expect((await removeSeed(payload, legacy)).failed).toEqual([])
+    expect((await payload.count({ collection: 'users', where: { sandbox: { equals: true } } })).totalDocs).toBe(0)
+    for (const c of ['sandbox-records', 'sandbox-batches'] as const) expect((await payload.count({ collection: c as never })).totalDocs).toBe(0)
+  })
+
+  it('adopts a document a recipe made itself, so removal takes it too', async () => {
+    const adopting: SeedOptions = {
+      ...options,
+      recipes: {
+        users: {
+          after: async (ctx) => {
+            const doc = await ctx.payload.create({ collection: 'users', data: { email: 'made-by-recipe@example.invalid', password: 'x-unused-password-1', sandbox: true } as never, overrideAccess: true, context: { sandbox: { batch: ctx.batch } } })
+            await ctx.track('users', String(doc.id))
+          },
+        },
+      },
+    }
+    const report = await runSeed(payload, adopting, { seed: 'track-1', collections: ['users'] })
+    const adopted = (await payload.find({ collection: 'users', where: { email: { equals: 'made-by-recipe@example.invalid' } }, depth: 0 })).docs[0] as unknown as { sandboxBatch?: string }
+    expect(adopted.sandboxBatch).toBe(report.batch)
+    await removeSeed(payload, adopting, { batch: report.batch })
+    expect((await payload.count({ collection: 'users', where: { email: { equals: 'made-by-recipe@example.invalid' } } })).totalDocs).toBe(0)
+  })
+})

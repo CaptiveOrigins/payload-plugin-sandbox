@@ -15,6 +15,8 @@ export type RecipeContext = {
   created: (collection: string) => string[]
   /** Creates a document in this batch (registered for removal, marked as sandbox). */
   create: (collection: string, data: Record<string, unknown>, options?: { draft?: boolean }) => Promise<string | null>
+  /** Adds a document the recipe created itself (with the marker set) to this batch, so removal takes it too. */
+  track: (collection: string, id: string) => Promise<void>
   /** Updates a document created in this batch. */
   update: (collection: string, id: string, data: Record<string, unknown>) => Promise<void>
 }
@@ -92,6 +94,12 @@ export type SeedOptions = {
   defer?: (task: () => Promise<void>) => void
   /** Domain for generated emails; never deliverable. Default example.invalid. */
   emailDomain?: string
+  /**
+   * How a batch remembers its documents. `marker` (default since 0.4.0): the batch id sits on each document, which
+   * costs a few bytes instead of a register document per record. `records`: one register document per record, as before.
+   * Batches made either way can always be removed.
+   */
+  register?: 'marker' | 'records'
   /** Slugs of the plugin's collections. */
   slugs?: { batches?: string; records?: string }
 }
