@@ -45,8 +45,15 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
     if (await isKept(r.collection, r.docId)) continue
     // The register is the seed's own, but a stale or bad row must never delete a real document:
     // only a document that still carries the seed's marker goes. One that's gone drops its row.
-    // draft: a seeded document that only exists as a draft is still seeded.
-    const doc = (await payload.findByID({ collection: r.collection as never, id: r.docId, depth: 0, overrideAccess: true, disableErrors: true, draft: true, select: { [MARKER]: true } as never })) as unknown as Record<string, unknown> | null
+    // draft: a seeded document that only exists as a draft is still seeded. A read that fails is not
+    // "gone": the row stays (reported as failed), so the document never loses its link to the batch.
+    let doc: Record<string, unknown> | null
+    try {
+      doc = ((await payload.find({ collection: r.collection as never, where: { id: { equals: r.docId } } as never, limit: 1, depth: 0, overrideAccess: true, draft: true, select: { [MARKER]: true } as never })).docs[0] as unknown as Record<string, unknown> | undefined) ?? null
+    } catch (e) {
+      failed.push({ collection: r.collection, id: r.docId, message: `couldn’t check it’s seeded: ${(e as Error).message ?? String(e)}` })
+      continue
+    }
     if (doc && doc[MARKER] !== true) {
       notSeeded.push({ collection: r.collection, id: r.docId })
       continue

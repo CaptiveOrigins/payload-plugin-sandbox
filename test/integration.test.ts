@@ -276,6 +276,11 @@ describe('the batch id on the marker (0.3.0)', () => {
     expect((await payload.count({ collection: 'sandbox-records' as never, where: { batch: { equals: report.batch } } as never })).totalDocs).toBe(1)
     expect((await payload.count({ collection: 'sandbox-batches' as never, where: { id: { equals: report.batch } } as never })).totalDocs).toBe(1)
     expect((await payload.count({ collection: 'users', where: { sandboxBatch: { equals: report.batch } } as never })).totalDocs).toBe(0)
+    // A row whose document can't be read (here, a collection that doesn't exist) is kept and reported, never dropped.
+    await payload.create({ collection: 'sandbox-records' as never, data: { batch: report.batch, collection: 'no-such-collection', docId: '000000000000000000000001', order: 9997 } as never, overrideAccess: true })
+    const again = await removeSeed(payload, legacy, { batch: report.batch })
+    expect(again.failed.map((f) => f.collection)).toEqual(['no-such-collection'])
+    expect((await payload.count({ collection: 'sandbox-records' as never, where: { batch: { equals: report.batch } } as never })).totalDocs).toBe(2)
     await payload.delete({ collection: 'sandbox-records' as never, where: { batch: { equals: report.batch } } as never, overrideAccess: true })
     await payload.delete({ collection: 'sandbox-batches' as never, id: report.batch, overrideAccess: true })
     await payload.delete({ collection: 'users', id: real.id })
