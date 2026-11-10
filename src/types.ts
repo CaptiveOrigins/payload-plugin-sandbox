@@ -145,6 +145,13 @@ export type SeedOptions = {
   texts?: TextSource
   /** Documents created at once in big seeds (default 4, at most 16). Coverage cases are always one at a time. */
   concurrency?: number
+  /**
+   * The site's coverage plan (`checkCoveragePlan`): when given, the realism audit also checks every
+   * select value reached its minimum in what was really made.
+   */
+  coveragePlan?: import('./coveragePlan.js').CoveragePlan
+  /** Run the realism audit after each run (default true). It only reads. */
+  audit?: boolean
   /** Slugs of the plugin's collections. */
   slugs?: { batches?: string; records?: string; marker?: string; settings?: string }
 }
@@ -178,4 +185,6 @@ export type BatchReport = {
   /** Records whose text was requested from the text source, and written by it. */
   texts?: { requested: number; written: number } & Record<string, unknown>
   progress?: { done: string[]; made: Record<string, number> }
+  /** What the realism audit found (design note section 10). */
+  realism?: import('./realism.js').RealismReport
 }

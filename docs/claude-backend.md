@@ -1,6 +1,6 @@
 # Design note: writing seed data with Claude
 
-Draft, 2026-11-09, reviewed. Built in 0.4.0 (2026-11-10): the guard (section 7), big seeds and settings (sections 2 and 12), and Claude's fill (sections 3 to 6). Not built yet: Opus plans at scale, the realism audit (section 10), snapshots, and copying settings from production in the plugin. This is how the plugin turns from "coverage-first test data" into **Seed for Payload: realistic test data at scale, written with Claude**. The rename itself is done in 0.3.0 (`payload-plugin-seed`, `seedPlugin`, `/admin/seed`); stored names (`sandbox-batches`, `sandbox-records`, the `sandbox` marker) stay, so earlier batches remain removable.
+Draft, 2026-11-09, reviewed. Built in 0.4.0 (2026-11-10): the guard (section 7), big seeds and settings (sections 2 and 12), and Claude's fill (sections 3 to 6). Not built yet: Opus plans at scale, snapshots, and copying settings from production in the plugin. This is how the plugin turns from "coverage-first test data" into **Seed for Payload: realistic test data at scale, written with Claude**. The rename itself is done in 0.3.0 (`payload-plugin-seed`, `seedPlugin`, `/admin/seed`); stored names (`sandbox-batches`, `sandbox-records`, the `sandbox` marker) stay, so earlier batches remain removable.
 
 What 0.2.1 already does, and keeps doing: reads the schema, fills collections in dependency order with pairwise coverage, writes through Payload's Local API so the site's own rules run, registers every document for removal, marks every document, refuses production, and offers "Sign in as" for generated accounts. What it lacks: scale (it makes tens of records, not tens of thousands), human-sounding text at that scale, and a way to keep a test site full on a schedule.
 
@@ -125,7 +125,7 @@ Runs after every generation, writes `report.realism` on the run, and shows pass 
 - **Mess:** typo rate, missing-optional rate and planned duplicates each within tolerance of the settings.
 - **Coverage:** the CI rules, measured on the real data.
 
-A failed audit doesn't delete the data; it marks the run "done with problems" and lists what failed.
+A failed audit doesn't delete the data; it marks the run "done with problems" and lists what failed. Built after 0.4.0 (2026-11-10), without the distribution, language-spread and mess checks: those need the settings' distributions and mess rates, which aren't built yet.
 
 ## 11. Images
 

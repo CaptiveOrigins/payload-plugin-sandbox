@@ -229,6 +229,25 @@ function BatchCard({ batch, busy, onRun, onResume, onRemove, onSignIn }: { batch
           </table>
         </div>
       )}
+      {report?.realism && (
+        <details style={{ marginTop: 12 }} open={!report.realism.ok}>
+          <summary>{report.realism.ok ? `Realism audit passed (${report.realism.records.toLocaleString()} records read)` : `Realism audit: ${report.realism.checks.filter((c) => !c.ok).length} problem${report.realism.checks.filter((c) => !c.ok).length === 1 ? '' : 's'} (nothing was changed)`}</summary>
+          <ul style={{ paddingInlineStart: 18 }}>
+            {report.realism.checks.map((c) => (
+              <li key={c.name}>
+                <strong>{c.ok ? 'Passed' : 'Failed'}: {c.name}.</strong> {c.detail}
+                {!c.ok && c.examples?.length ? (
+                  <ul style={{ ...muted, paddingInlineStart: 18 }}>
+                    {c.examples.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {refused.length > 0 && (
         <details style={{ marginTop: 12 }}>
           <summary>{`${refused.length} documents the site refused, and why`}</summary>
