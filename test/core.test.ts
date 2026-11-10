@@ -157,6 +157,11 @@ describe('retrying clashing writes', () => {
     expect(isTransient({ errorLabels: ['TransientTransactionError'] })).toBe(true)
     expect(isTransient({ message: 'wrapped', cause: { code: 112 } })).toBe(true)
     expect(isTransient(new Error('The following field is invalid: Group'))).toBe(false)
+    const loop: { message: string; cause?: unknown } = { message: 'a' }
+    loop.cause = { message: 'b', cause: loop }
+    expect(isTransient(loop)).toBe(false)
+    const deep = Array.from({ length: 10 }).reduce<unknown>((cause) => ({ message: 'wrapped', cause }), { code: 112 })
+    expect(isTransient(deep)).toBe(false)
     let n = 0
     expect(await retryTransient(async () => (++n < 3 ? Promise.reject(new Error('Write conflict')) : 'ok'), 4, noWait)).toBe('ok')
     expect(n).toBe(3)

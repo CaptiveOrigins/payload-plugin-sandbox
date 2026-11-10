@@ -93,10 +93,12 @@ const PROGRESS_EVERY = 500
  * A write that clashed with another one at the same moment (two weights updating one animal) is
  * retried a few times, a little later each time. Anything else fails at once and is reported.
  */
-export function isTransient(e: unknown): boolean {
+export function isTransient(e: unknown, depth = 0): boolean {
   const err = e as { message?: string; errorLabels?: string[]; errorLabelSet?: Set<string>; code?: number; cause?: unknown }
   const labels = [...(err?.errorLabels ?? []), ...(err?.errorLabelSet ? [...err.errorLabelSet] : [])]
-  return labels.includes('TransientTransactionError') || err?.code === 112 || /write conflict/i.test(err?.message ?? '') || (err?.cause !== undefined && err.cause !== e && isTransient(err.cause))
+  if (labels.includes('TransientTransactionError') || err?.code === 112 || /write conflict/i.test(err?.message ?? '')) return true
+  // Wrapped errors are followed a few levels down, never round a loop.
+  return depth < 5 && err?.cause !== undefined && err.cause !== e && isTransient(err.cause, depth + 1)
 }
 export async function retryTransient<T>(task: () => Promise<T>, tries = 4, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
   for (let attempt = 1; ; attempt++) {
