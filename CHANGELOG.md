@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (not released yet)
+## 0.4.0 (2026-11-10)
 
 - **`bulkRemove`:** collections a site names are removed with one delete per collection, skipping their delete hooks, still only the seed's marked records of that batch never a collection in `keep`, and refused at start-up for a collection that keeps versions (their version records would be left). For kits-sized loads: one record at a time took about 35 minutes for 200 kits on Atlas.
 - **Register rows are checked before a delete** (security review S1): removal through the older register deletes a document only if it still carries the seed's marker. A row pointing at an unmarked document is skipped, listed under `notSeeded`, and left for a person to look at; one pointing at a document that's gone is dropped.
