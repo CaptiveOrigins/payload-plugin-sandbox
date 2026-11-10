@@ -107,3 +107,17 @@ describe('coverage plan', () => {
     expect(checkCoveragePlan({ collections: [many] }, q).ok).toBe(true)
   })
 })
+
+describe('a field’s own minimum', () => {
+  const wide: CollectionConfig = { slug: 'people', fields: [{ name: 'country', type: 'select', options: Array.from({ length: 200 }, (_, i) => `c${i}`) }] }
+  const cfg = { collections: [wide] }
+  it('lets a long list ask for less than every value several times, with a reason', () => {
+    const base: CoveragePlan = { collections: { people: { generate: { small: 10, big: 100 }, fields: { country: 'fill' } } } }
+    expect(checkCoveragePlan(cfg, base).issues.map((i) => i.code)).toEqual(['minimum-unreachable', 'minimum-unreachable'])
+    const own: CoveragePlan = { collections: { people: { generate: { small: 10, big: 100 }, fields: { country: { minimum: { small: 0, big: 0, reason: 'Countries: a spread, not every one.' } } } } } }
+    expect(checkCoveragePlan(cfg, own).ok).toBe(true)
+    expect(selectMinimums(cfg, own, 'big').every((m) => m.minimum === 0)).toBe(true)
+    const noReason: CoveragePlan = { collections: { people: { generate: { small: 10, big: 100 }, fields: { country: { minimum: { small: 0, big: 0, reason: ' ' } } } } } }
+    expect(checkCoveragePlan(cfg, noReason).issues.map((i) => i.code)).toEqual(['reason-missing'])
+  })
+})

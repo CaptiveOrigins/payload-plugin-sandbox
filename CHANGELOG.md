@@ -12,6 +12,7 @@
   - `checkCoveragePlan`, `assertCoveragePlan`, `draftCoveragePlan` and `selectMinimums`.
   - It covers collections, fields, select values, relationships and globals.
   - It fails on missing reasons (and "TODO" placeholders) and on minimums a plan can never reach.
+  - A field can set its own minimum, with a reason (`minimum`), for long lists such as countries.
 - **A stricter guard.** Seeding now needs three checks to pass, each failing closed:
   - `allow()`;
   - a readable database name that doesn't look like production (an unreadable name used to pass, and is now refused);

@@ -138,3 +138,13 @@ describe('renamed from payload-plugin-sandbox (0.3.0)', () => {
     expect(rsc).toMatch(/export \{ SeedNavLink, SeedView \}/)
   })
 })
+
+describe('removal order', () => {
+  it('reverses what the batches really did, before the schema’s guess', async () => {
+    const { removalOrder } = await import('../src/index.js')
+    // The schema's order (from a larger graph with cycles) puts groups after measurements; the batch made groups first.
+    expect(removalOrder([['users', 'groups', 'animals', 'measurements']], ['users', 'animals', 'measurements', 'groups', 'notes'], ['users', 'groups', 'animals', 'measurements', 'notes', 'orphans'])).toEqual(['notes', 'measurements', 'animals', 'groups', 'users', 'orphans'])
+    expect(removalOrder([], ['a', 'b'], ['a', 'b', 'c'])).toEqual(['b', 'a', 'c'])
+    expect(removalOrder([['x', 'a']], ['a'], ['a'])).toEqual(['a'])
+  })
+})

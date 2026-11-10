@@ -53,9 +53,11 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
   // order, and newest first within one, so parents outlive their offspring until they go too.
   const internal = new Set([slugs.batches, slugs.records, markerSlug(options), 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
   const models = payload.config.collections.filter((c) => !internal.has(c.slug) && c.fields.some((f) => 'name' in f && f.name === MARKER_BATCH)).map(readCollection)
-  const { order } = creationOrder(models)
-  const rest = models.map((m) => m.slug).filter((s) => !order.includes(s))
-  for (const slug of [...order].reverse().concat(rest)) {
+  // The order the batches really created collections in, reversed: a site's hooks may need what was
+  // made first (a group) while removing what came after (a weight that updates its animal). The
+  // schema's own order is the fallback for collections a batch didn't record.
+  const batchDocs = (await payload.find({ collection: slugs.batches as never, where: (batch ? { id: { equals: batch } } : {}) as never, pagination: false, depth: 0, overrideAccess: true, sort: 'createdAt' })).docs as unknown as { report?: { order?: string[] } }[]
+  for (const slug of removalOrder(batchDocs.map((b) => b.report?.order ?? []), creationOrder(models).order, models.map((m) => m.slug))) {
     if (collection && slug !== collection) continue
     const skip: string[] = []
     for (;;) {
@@ -89,4 +91,16 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
     }
   }
   return { removed, failed, kept }
+}
+
+/**
+ * Collections in the order to remove them: the reverse of the order the batches really created them
+ * in (oldest batch's order first), then the schema's order for collections no batch recorded, then
+ * the rest. Pure; exported for tests.
+ */
+export function removalOrder(recordedOrders: string[][], schemaOrder: string[], all: string[]): string[] {
+  const recorded: string[] = []
+  for (const order of recordedOrders) for (const slug of order) if (!recorded.includes(slug) && all.includes(slug)) recorded.push(slug)
+  const order = [...recorded, ...schemaOrder.filter((s) => !recorded.includes(s))]
+  return [...order].reverse().concat(all.filter((s) => !order.includes(s)))
 }
