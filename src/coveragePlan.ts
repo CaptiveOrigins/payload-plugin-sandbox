@@ -63,7 +63,7 @@ const DEFAULT_MINIMUM: Minimum = { small: 1, big: 3 }
 
 /** Every planned path: groups and arrays are planned through their leaves, blocks per block (`layout[].hero.title`). */
 function leaves(fields: FieldModel[]): FieldModel[] {
-  return fields.flatMap((f) => (f.type === 'group' || f.type === 'array' ? leaves(f.fields ?? []) : f.type === 'blocks' ? (f.blocks ?? []).flatMap((b) => leaves(b.fields).map((l) => ({ ...l, path: l.path.replace(`${f.path}[].`, `${f.path}[].${b.slug}.`) }))) : [f]))
+  return fields.filter((f) => !f.readOnly).flatMap((f) => (f.type === 'group' || f.type === 'array' ? leaves(f.fields ?? []) : f.type === 'blocks' ? (f.blocks ?? []).flatMap((b) => leaves(b.fields).map((l) => ({ ...l, path: l.path.replace(`${f.path}[].`, `${f.path}[].${b.slug}.`) }))) : [f]))
 }
 
 /** A real reason: not empty, and not a draft's "TODO:" placeholder. */

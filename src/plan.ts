@@ -40,6 +40,7 @@ export function dimensionsFor(model: CollectionModel): Dimension[] {
   const out: Dimension[] = []
   const walk = (fields: FieldModel[]) => {
     for (const f of fields) {
+      if (f.readOnly) continue
       if (f.type === 'group') walk(f.fields ?? [])
       else {
         const d = fieldDimension(f)
@@ -79,6 +80,7 @@ function variantOf(f: FieldModel, c: Record<string, string>, rnd: Random): Varia
 function buildFields(fields: FieldModel[], c: Record<string, string>, ctx: BuildContext): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const f of fields) {
+    if (f.readOnly) continue
     if (f.type === 'group') {
       out[f.name] = buildFields(f.fields ?? [], c, ctx)
       continue
