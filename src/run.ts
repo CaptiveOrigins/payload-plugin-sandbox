@@ -12,6 +12,8 @@ import { readCollection, type CollectionModel } from './schema.js'
 import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SeedOptions, SeedPlan } from './types.js'
 
 export const MARKER = 'sandbox'
+/** The batch a seeded document belongs to, kept on the document itself (0.4.0): no register document per record. */
+export const MARKER_BATCH = 'sandboxBatch'
 export const defaultSlugs = (o: SeedOptions) => ({ batches: o.slugs?.batches ?? 'sandbox-batches', records: o.slugs?.records ?? 'sandbox-records' })
 
 /** Collections the sandbox may generate: everything except its own, excluded and recipe-skipped ones. */
@@ -61,13 +63,19 @@ async function run(payload: Payload, options: SeedOptions, { seed = String(Date.
   const emailDomain = options.emailDomain ?? 'example.invalid'
   const configOf = (slug: string) => payload.config.collections.find((c) => c.slug === slug)
 
+  const useRecords = options.register === 'records'
   const register = async (collection: string, id: string) => {
     pools.set(collection, [...(pools.get(collection) ?? []), id])
-    await payload.create({ collection: slugs.records as never, data: { batch, collection, docId: id, order: position++ } as never, overrideAccess: true })
+    if (useRecords) await payload.create({ collection: slugs.records as never, data: { batch, collection, docId: id, order: position++ } as never, overrideAccess: true })
+  }
+  /** Adopts a document a recipe made itself (already marked) into this batch, so removing the batch removes it. */
+  const track = async (collection: string, id: string) => {
+    await register(collection, id)
+    if (!useRecords) await payload.update({ collection: collection as never, id, data: { [MARKER_BATCH]: batch } as never, overrideAccess: true, context })
   }
   const create = async (collection: string, data: Record<string, unknown>, opts: { draft?: boolean } = {}): Promise<string | null> => {
     const cfg = configOf(collection)
-    const body: Record<string, unknown> = { ...data, [MARKER]: true }
+    const body: Record<string, unknown> = { ...data, [MARKER]: true, ...(useRecords ? {} : { [MARKER_BATCH]: batch }) }
     if (cfg?.auth && !body.password) body.password = randomBytes(24).toString('base64url') // never usable: not stored anywhere
     let file: { data: Buffer; mimetype: string; name: string; size: number } | undefined
     if (cfg?.upload) {
@@ -99,7 +107,7 @@ async function run(payload: Payload, options: SeedOptions, { seed = String(Date.
       failures.push({ collection, message: `update: ${message(e)}` })
     }
   }
-  const baseCtx = { payload, rnd, batch, created: (c: string) => pools.get(c) ?? [], create, update }
+  const baseCtx = { payload, rnd, batch, created: (c: string) => pools.get(c) ?? [], create, update, track }
   const deferredPaths = new Set(deferred.map((d) => `${d.from}:${d.path}`))
   const reports: BatchReport['collections'] = []
 

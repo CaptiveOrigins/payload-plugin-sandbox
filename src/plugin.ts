@@ -3,7 +3,7 @@ import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 import { assertAllowed, isAllowed, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
 import { removeSeed } from './remove.js'
-import { defaultSlugs, MARKER, runSeed } from './run.js'
+import { defaultSlugs, MARKER, MARKER_BATCH, runSeed } from './run.js'
 import { signInAs, SignInRefused } from './signIn.js'
 import type { SeedOptions, SeedPlan } from './types.js'
 
@@ -16,6 +16,15 @@ const markerField = (): Field => ({
   index: true,
   access: { create: ({ req }) => Boolean((req.context as { sandbox?: unknown })?.sandbox), update: () => false },
   admin: { position: 'sidebar', readOnly: true, condition: (data) => Boolean(data?.[MARKER]), description: 'Seed: generated test data, never real.' },
+})
+
+/** Which batch made the document; only the seed itself can set it. */
+const batchField = (): Field => ({
+  name: MARKER_BATCH,
+  type: 'text',
+  index: true,
+  access: { create: ({ req }) => Boolean((req.context as { sandbox?: unknown })?.sandbox), update: ({ req }) => Boolean((req.context as { sandbox?: unknown })?.sandbox) },
+  admin: { hidden: true, readOnly: true },
 })
 
 /**
@@ -127,7 +136,7 @@ export const seedPlugin =
         { name: 'order', type: 'number' },
       ],
     }
-    const collections = (config.collections ?? []).map((c) => (INTERNAL.has(c.slug) ? c : { ...c, fields: [...c.fields, markerField()] }))
+    const collections = (config.collections ?? []).map((c) => (INTERNAL.has(c.slug) ? c : { ...c, fields: [...c.fields, markerField(), batchField()] }))
     const components = config.admin?.components ?? {}
     return {
       ...config,
