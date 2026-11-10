@@ -125,7 +125,7 @@ describe('guard', () => {
 })
 
 describe('renamed from payload-plugin-sandbox (0.3.0)', () => {
-  it('drops the old export names in 0.4.0, as 0.3.0 announced', async () => {
+  it('drops the old export names (gone in the first published version, 0.3.0)', async () => {
     const m = (await import('../src/index.js')) as Record<string, unknown>
     for (const old of ['sandboxPlugin', 'runSandbox', 'removeSandbox', 'SandboxRefused']) expect(m[old]).toBeUndefined()
     expect(typeof m.seedPlugin).toBe('function')

@@ -49,7 +49,7 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
     }
     await payload.delete({ collection: slugs.records as never, id: r.id, overrideAccess: true })
   }
-  // Batches since 0.4.0 keep the batch id on each document: collections in reverse dependency
+  // Batches since 0.3.0 keep the batch id on each document: collections in reverse dependency
   // order, and newest first within one, so parents outlive their offspring until they go too.
   const internal = new Set([slugs.batches, slugs.records, markerSlug(options), 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
   const models = payload.config.collections.filter((c) => !internal.has(c.slug) && c.fields.some((f) => 'name' in f && f.name === MARKER_BATCH)).map(readCollection)

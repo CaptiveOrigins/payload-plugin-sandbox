@@ -1,13 +1,15 @@
 # Changelog
 
-## Not released yet
+## 0.4.0 (not released yet)
 
 - **Read-only links order creation:** a relationship shown read-only in the admin (a membership's account) is never filled, but now counts for the order collections are made in. Before, such a collection could be made before what it points at, and every record came out empty.
 - **Realism audit** after every run (`auditBatch`, `report.realism`): repeated long text, distinct names, placeholder text, seed markers, emails and links outside example domains, and, with `coveragePlan`, select values below their minimum. It only reads; problems mark the run `done-with-problems` and show in the admin.
 
-## 0.4.0 (2026-11-10)
+## 0.3.0 (2026-11-10)
 
-The first version published under this name. 0.3.0 below was prepared but never published (npm refused it after an earlier staging attempt), so anyone coming from `@captiveorigins/payload-plugin-sandbox` 0.2.x moves straight to 0.4.0.
+The first version published under this name, by hand, from commit e59997e. It holds the rename from `@captiveorigins/payload-plugin-sandbox` 0.2.x and everything below. Notes written earlier for a 0.3.0 with the old names kept as deprecated aliases described a version that was never published: in the published 0.3.0 the old names are gone.
+
+- **Renamed** from `@captiveorigins/payload-plugin-sandbox` to `@captiveorigins/payload-plugin-seed`: exports, the admin area (`/admin/seed`) and wording say Seed. Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker), so earlier batches stay removable.
 
 - **The batch id lives on each seeded document** (`sandboxBatch`, beside the `sandbox` marker) instead of one `sandbox-records` document per record. That saves about 0.4 KB per record, which matters on small database tiers.
   - The default `register` is now `marker`. Set `register: 'records'` to keep the old register.
@@ -35,7 +37,3 @@ The first version published under this name. 0.3.0 below was prepared but never 
 - **Removed:** the `sandboxPlugin`, `runSandbox`, `removeSandbox`, `SandboxRefused`, `SandboxOptions` and `SandboxPlan` aliases, and the component aliases `SandboxPanel` (`/client`), `SandboxView` and `SandboxNavLink` (`/rsc`), all deprecated in 0.3.0. Use the `Seed` names.
 
 **Upgrading:** mark each test database once with `markTestDatabase()` before seeding it again. Await `assertAllowed` and `isAllowed`. Build the new `sandboxBatch` index wherever your database doesn't build indexes automatically (for example a script you run after migrations). Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker).
-
-## 0.3.0 (never published)
-
-- Renamed from `@captiveorigins/payload-plugin-sandbox` to `@captiveorigins/payload-plugin-seed`. Exports, the admin area (`/admin/seed`) and wording say Seed; old export names kept as deprecated aliases until 0.4.0. Stored names unchanged.

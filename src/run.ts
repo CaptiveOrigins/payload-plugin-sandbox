@@ -16,7 +16,7 @@ import { lexical } from './values.js'
 import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SeedOptions, SeedPlan, TextEstimate, TextJob, TextSource } from './types.js'
 
 export const MARKER = 'sandbox'
-/** The batch a seeded document belongs to, kept on the document itself (0.4.0): no register document per record. */
+/** The batch a seeded document belongs to, kept on the document itself (0.3.0): no register document per record. */
 export const MARKER_BATCH = 'sandboxBatch'
 export const defaultSlugs = (o: SeedOptions) => ({ batches: o.slugs?.batches ?? 'sandbox-batches', records: o.slugs?.records ?? 'sandbox-records' })
 

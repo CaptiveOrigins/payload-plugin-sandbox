@@ -22,7 +22,7 @@ export async function signInAs(req: PayloadRequest, options: SeedOptions, collec
   if (!cfg?.auth) throw new SignInRefused('That collection has no accounts.')
   const target = (await payload.findByID({ collection: collection as never, id, depth: 0, overrideAccess: true, showHiddenFields: true, disableErrors: true })) as unknown as Record<string, unknown> | null
   if (!target || target[MARKER] !== true) throw new SignInRefused('Only seeded accounts can be signed in to.')
-  // Seeded: the batch is on the account (0.4.0), or the account is in the older register. Only the seed can set either.
+  // Seeded: the batch is on the account (0.3.0), or the account is in the older register. Only the seed can set either.
   const inBatch = typeof target[MARKER_BATCH] === 'string' && String(target[MARKER_BATCH]).length > 0
   const registered = inBatch || (await payload.count({ collection: slugs.records as never, where: { and: [{ collection: { equals: collection } }, { docId: { equals: id } }] } as never, overrideAccess: true })).totalDocs > 0
   if (!registered) throw new SignInRefused('Only seeded accounts can be signed in to.')
