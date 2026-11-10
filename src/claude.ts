@@ -72,8 +72,11 @@ export function fileTextCache(path: string): TextCache {
     set: async (entries) => {
       if (!entries.size) return
       const fs = await import('node:fs/promises')
+      const { dirname } = await import('node:path')
       const all = await load()
       for (const [k, v] of entries) all.set(k, v)
+      // The folder may not exist yet (a fresh checkout or CI runner).
+      await fs.mkdir(dirname(path), { recursive: true })
       await fs.appendFile(path, [...entries].map(([k, v]) => JSON.stringify({ k, v })).join('\n') + '\n')
     },
   }

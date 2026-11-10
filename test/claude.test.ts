@@ -168,6 +168,21 @@ describe('Claude text source (mocked API: no requests leave the machine)', () =>
   })
 })
 
+describe('the file text cache', () => {
+  it('creates its folder, keeps text between runs, and skips torn lines', async () => {
+    const { fileTextCache } = await import('../src/index.js')
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seed-cache-'))
+    const file = path.join(dir, 'nested', 'texts.jsonl')
+    await fileTextCache(file).set(new Map([['a', { name: 'Clementine' }]]))
+    fs.appendFileSync(file, '{"k":"torn\n')
+    expect([...(await fileTextCache(file).get(['a', 'b'])).entries()]).toEqual([['a', { name: 'Clementine' }]])
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
 describe('cleaning one value', () => {
   const text = { path: 'name', type: 'text' as const, maxLength: 20 }
   it('trims to the field, joins lines in short text, and refuses empty and unsafe text', () => {
