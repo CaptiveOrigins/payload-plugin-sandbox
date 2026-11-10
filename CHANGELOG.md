@@ -2,6 +2,7 @@
 
 ## 0.4.0 (not released yet)
 
+- **`bulkRemove`:** collections a site names are removed with one delete per collection, skipping their delete hooks, still only the seed's marked records of that batch and never a collection in `keep`. For kits-sized loads: one record at a time took about 35 minutes for 200 kits on Atlas.
 - **Register rows are checked before a delete** (security review S1): removal through the older register deletes a document only if it still carries the seed's marker. A row pointing at an unmarked document is skipped, listed under `notSeeded`, and left for a person to look at; one pointing at a document that's gone is dropped.
 - **`ctx.counts` in recipes:** the run's counts, sized to the cluster in a big seed. Kinds that aren't collections can be sized and read too ("how many stories to tell").
 - **Read-only links order creation:** a relationship shown read-only in the admin (a membership's account) is never filled, but now counts for the order collections are made in. Before, such a collection could be made before what it points at, and every record came out empty.

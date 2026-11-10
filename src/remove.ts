@@ -85,6 +85,17 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
   const batchDocs = (await payload.find({ collection: slugs.batches as never, where: (batch ? { id: { equals: batch } } : {}) as never, pagination: false, depth: 0, overrideAccess: true, sort: 'createdAt' })).docs as unknown as { report?: { order?: string[] } }[]
   for (const slug of removalOrder(batchDocs.map((b) => b.report?.order ?? []), creationOrder(models).order, models.map((m) => m.slug))) {
     if (collection && slug !== collection) continue
+    // Collections the site names as safe to remove in bulk (no delete hooks it relies on): one deleteMany,
+    // still only records carrying the marker and this batch. Never where the site keeps some of them.
+    if (options.bulkRemove?.includes(slug) && !options.keep?.[slug]) {
+      const where = { and: [{ [MARKER]: { equals: true } }, batch ? { [MARKER_BATCH]: { equals: batch } } : { [MARKER_BATCH]: { exists: true } }] }
+      const { totalDocs } = await payload.count({ collection: slug as never, where: where as never, overrideAccess: true })
+      if (totalDocs) {
+        await payload.db.deleteMany({ collection: slug, where: where as never })
+        removed += totalDocs
+      }
+      continue
+    }
     const skip: string[] = []
     for (;;) {
       const where = { and: [{ [MARKER]: { equals: true } }, batch ? { [MARKER_BATCH]: { equals: batch } } : { [MARKER_BATCH]: { exists: true } }, ...(skip.length ? [{ id: { not_in: skip } }] : [])] }
