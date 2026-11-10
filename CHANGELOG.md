@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.4.0 (not released yet)
+## 0.4.0 (2026-11-10)
+
+The first version published under this name. 0.3.0 below was prepared but never published (npm refused it after an earlier staging attempt), so anyone coming from `@captiveorigins/payload-plugin-sandbox` 0.2.x moves straight to 0.4.0.
 
 - **The batch id lives on each seeded document** (`sandboxBatch`, beside the `sandbox` marker) instead of one `sandbox-records` document per record. That saves about 0.4 KB per record, which matters on small database tiers.
   - The default `register` is now `marker`. Set `register: 'records'` to keep the old register.
@@ -29,6 +31,6 @@
 
 **Upgrading:** mark each test database once with `markTestDatabase()` before seeding it again. Await `assertAllowed` and `isAllowed`. Build the new `sandboxBatch` index wherever your database doesn't build indexes automatically (for example a script you run after migrations). Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker).
 
-## 0.3.0
+## 0.3.0 (never published)
 
 - Renamed from `@captiveorigins/payload-plugin-sandbox` to `@captiveorigins/payload-plugin-seed`. Exports, the admin area (`/admin/seed`) and wording say Seed; old export names kept as deprecated aliases until 0.4.0. Stored names unchanged.
