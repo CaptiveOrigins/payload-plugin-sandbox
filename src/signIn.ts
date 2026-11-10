@@ -16,7 +16,7 @@ export class SignInRefused extends Error {}
  */
 export async function signInAs(req: PayloadRequest, options: SeedOptions, collection: string, id: string): Promise<{ cookie: string; user: { id: string; email: string } }> {
   const { payload } = req
-  if (!isAllowed(payload, options)) throw new SignInRefused('Seeding is not allowed in this environment.')
+  if (!(await isAllowed(payload, options))) throw new SignInRefused('Seeding is not allowed in this environment.')
   const slugs = defaultSlugs(options)
   const cfg = payload.collections[collection as never]?.config
   if (!cfg?.auth) throw new SignInRefused('That collection has no accounts.')

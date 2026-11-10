@@ -48,8 +48,20 @@ Globals are planned too (`globals`: existing or skipped, with a reason; the seed
 
 ## Never in production
 
-- `allow()` is required; without it, or when it returns false, nothing is generated and the admin is hidden.
-- Databases whose name contains "prod" are refused unless listed in `allowDatabases`.
+Three checks, each failing closed. A refusal says which one failed.
+
+1. `allow()` is required; without it, or when it returns false, nothing is generated and the admin is hidden.
+2. The database name must be readable and must not contain "prod", unless it's listed in `allowDatabases`.
+3. The database must be marked as a test database, for its own name and host. A person does this once, typing the database name to confirm:
+
+   ```ts
+   import { markTestDatabase } from '@captiveorigins/payload-plugin-seed'
+   await markTestDatabase(payload, seedOptions, { confirm: 'test', by: 'who ran it' })
+   ```
+
+   It refuses where checks 1 or 2 fail, so production can't be marked. The marker records the database name and host (never credentials), so a copy restored on another cluster, or under another name, is refused until someone marks it again.
+
+Give `assertQuiet` (a function that throws while email, webhooks or payments are on) and seeding also refuses while it throws. Switching effects off in `around` isn't proof they're off.
 - Every generated document carries a read-only `sandbox` marker that only Seed can set. Where seeding is not allowed, start-up logs an error if any marked document exists (for example after copying a test database).
 
 ## Size: fill to a share of the cluster

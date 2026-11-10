@@ -1,7 +1,7 @@
 export { seedPlugin } from './plugin.js'
 export { runSeed, generatable, MARKER } from './run.js'
 export { removeSeed } from './remove.js'
-export { assertAllowed, databaseName, isAllowed, SeedRefused } from './guard.js'
+export { assertAllowed, assertConfigAllowed, databaseHost, databaseName, isAllowed, markTestDatabase, SeedRefused } from './guard.js'
 export { pairwise, pairCoverage, type Case, type Dimension } from './coverage.js'
 export { assertCoveragePlan, checkCoveragePlan, draftCoveragePlan, selectMinimums, type CollectionPlan, type CoverageIssue, type CoveragePlan, type CoverageReport, type FieldPlan, type Minimum } from './coveragePlan.js'
 export { creationOrder, withDependencies } from './graph.js'

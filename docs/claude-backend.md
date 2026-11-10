@@ -86,7 +86,7 @@ Three independent checks. Every one must pass, and each fails closed: if a check
 
 1. **The site says so:** `allow()` returns true (unchanged from 0.2.1).
 2. **The database doesn't look like production:** its name doesn't match `prodGuard.databasePattern` (default `/prod/i`), unless listed in `allowDatabases` (unchanged). A database name that can't be read now counts as a refusal, where 0.2.1 let it through.
-3. **The database says it's a test database:** a marker document in a plugin collection, written once by a person with `npx seed mark-test-database`, which asks them to type the database name. A copy of a test database restored elsewhere carries the marker, so the marker also records the **database name and the cluster host** it was written for, and both must match. A dump restored under the same name on another cluster is refused. `mark-test-database` itself refuses when check 1 or 2 fails.
+3. **The database says it's a test database:** a marker document in a plugin collection (`seed-marker`), written once by a person with `markTestDatabase()`, which asks them to type the database name (built 2026-11-10; sites wrap it in their own command). A copy of a test database restored elsewhere carries the marker, so the marker also records the **database name and the cluster host** it was written for, and both must match. A dump restored under the same name on another cluster is refused. Marking itself refuses when check 1 or 2 fails.
 
 A refusal names which check failed. Where the plugin is refused, it reads no key, shows no admin, and at start-up logs an error if any marked record exists (unchanged).
 
