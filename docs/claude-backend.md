@@ -85,11 +85,15 @@ Three independent checks. Every one must pass, and each fails closed: if a check
 
 1. **The site says so:** `allow()` returns true (unchanged from 0.2.1).
 2. **The database doesn't look like production:** its name doesn't match `prodGuard.databasePattern` (default `/prod/i`), unless listed in `allowDatabases` (unchanged). A database name that can't be read now counts as a refusal, where 0.2.1 let it through.
-3. **The database says it's a test database:** a marker document in a plugin collection, written once by a person with `npx seed mark-test-database`, which asks them to type the database name. A copy of a test database restored over production carries the marker, so the marker also records the database name it was written for, and must match.
+3. **The database says it's a test database:** a marker document in a plugin collection, written once by a person with `npx seed mark-test-database`, which asks them to type the database name. A copy of a test database restored elsewhere carries the marker, so the marker also records the **database name and the cluster host** it was written for, and both must match. A dump restored under the same name on another cluster is refused. `mark-test-database` itself refuses when check 1 or 2 fails.
 
 A refusal names which check failed. Where the plugin is refused, it reads no key, shows no admin, and at start-up logs an error if any marked record exists (unchanged).
 
-Side effects are off for every run through the site's `around` wrapper (email, webhooks, payments, label purchases). Generated emails use `@example.invalid`.
+Side effects are off for every run through the site's `around` wrapper (email, webhooks, payments, label purchases). It isn't enough to switch them off: a site can supply `assertQuiet()`, which throws if outgoing effects are enabled in this environment, and the plugin refuses to run when it throws. Generated emails use `@example.invalid`. Records that a provider would normally create (payments, labels, external syncs) are written directly with ids that can't exist, never through the code path that calls the provider.
+
+**Removing only what the seed made.** A wipe removes a record only when it carries the marker and is in the register; the plugin never deletes a collection wholesale. Sites can name accounts that are never touched (`keep: { users: where }`, for example administrators and service accounts), and a wipe refuses to delete them even if marked. Hand-made test data in the same collections is left alone.
+
+**Other plugins can skip seeded records.** The marker field is indexed and readable, so translation, search or analytics plugins can leave seeded records out (for example a translation plugin's include filter), so a big world doesn't trigger paid work.
 
 ## 8. Copying settings from production
 
@@ -98,7 +102,9 @@ Optional, and off unless the site sets it up. For sites that want a test databas
 - The plugin connects to production read-only (a separate connection string, `SEED_PROD_READ_URI`, ideally a database user with read rights only) and copies only fields on an allow-list the site supplies.
 - A field on the list is still refused if its name or value looks like a key, token, secret, webhook, payment id, email credential or postal address. That check fails closed.
 - Unknown fields are skipped and listed in the report. Nothing read from production is ever sent to Claude.
-- Where the site already has its own copy script, the plugin calls it instead (`copySettings: (report) => …`).
+- Where the site already has its own copy script, the plugin calls it instead (`copySettings: (report) => …`), and needs no production connection string of its own. That's the recommended setup.
+- A scheduled refresh should regenerate only. Copying from production needs a production credential wherever it runs, so the plugin never schedules it: it stays a step a person starts.
+- Settings are copied **before** the seed loads, so a copy can't remove seeded records or change ids they point at.
 
 ## 9. Coverage check in CI
 
@@ -127,7 +133,8 @@ Each image field points at one shared copy per kind (silhouettes, a small set of
 
 - **Small** (tens of records per collection) runs in CI on every pull request, without Claude: word lists only, so it's free and stays deterministic.
 - **Big** runs on a test database on demand or on a schedule. It writes through the Local API in chunks with progress, and can be resumed after an interruption (the register knows what exists).
-- Before a big run, the plugin reports the database's current size and the estimated size after, and refuses if the site's `maxDatabaseMB` would be crossed.
+- Before a big run, the plugin reports the database's current size (data and indexes) and the estimated size after, including its own register and text cache, and refuses if the site's `maxDatabaseMB` would be crossed. Free database tiers are small; the estimate comes from a measured small run, scaled.
+- **A smaller register [proposed]:** store the batch id in each record's marker instead of one register document per record. At tens of thousands of records the register is a noticeable share of the database; the marker already exists and is indexed.
 - **Snapshots:** after a full generation, the site can export the generated data (`npx seed snapshot`), and later load it again in minutes without Claude (`npx seed restore`). Snapshots stay private to the site; the plugin never uploads them anywhere.
 
 ## 13. What changes for sites on 0.2.x
