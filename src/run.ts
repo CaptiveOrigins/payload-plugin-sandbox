@@ -374,7 +374,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
       failures.push({ collection, message: `update: ${message(e)}` })
     }
   }
-  const baseCtx = { payload, rnd, batch, created: (c: string) => pools.get(c) ?? [], create, update, track }
+  const baseCtx = { payload, rnd, batch, created: (c: string) => pools.get(c) ?? [], counts, create, update, track }
   const reports: BatchReport['collections'] = []
   const personasDone: PersonaReport[] = []
   const planned = plan?.personas ?? options.personas ?? []

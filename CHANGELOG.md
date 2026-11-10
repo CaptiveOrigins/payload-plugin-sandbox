@@ -2,6 +2,7 @@
 
 ## 0.4.0 (not released yet)
 
+- **`ctx.counts` in recipes:** the run's counts, sized to the cluster in a big seed. Kinds that aren't collections can be sized and read too ("how many stories to tell").
 - **Read-only links order creation:** a relationship shown read-only in the admin (a membership's account) is never filled, but now counts for the order collections are made in. Before, such a collection could be made before what it points at, and every record came out empty.
 - **Realism audit** after every run (`auditBatch`, `report.realism`): repeated long text, distinct names, placeholder text, seed markers, emails and links outside example domains, and, with `coveragePlan`, select values below their minimum. It only reads; problems mark the run `done-with-problems` and show in the admin.
 

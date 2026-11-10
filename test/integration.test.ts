@@ -487,3 +487,12 @@ describe('the realism audit (0.4.0)', () => {
     await removeSeed(payload, options, { batch: report.batch })
   })
 })
+
+describe('counts in recipes', () => {
+  it('gives recipes the run’s counts, including kinds that aren’t collections', async () => {
+    let seen: Record<string, number> | undefined
+    const report = await runSeed(payload, { ...options, recipes: { groups: { after: async (ctx) => { seen = ctx.counts } } } }, { seed: 'counts-1', collections: ['groups'], counts: { groups: 12, 'kit-stories': 3 } })
+    expect(seen).toEqual({ groups: 12, 'kit-stories': 3 })
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+})
