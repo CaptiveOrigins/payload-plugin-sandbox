@@ -31,6 +31,21 @@ export default buildConfig({
 
 Run it from a script (`runSeed(payload, options, { seed: 'demo', collections: ['animals'] })`, dependencies added automatically) or `POST /api/sandbox-batches/run`; remove with `removeSeed(payload, options, { batch })` or `POST /api/sandbox-batches/remove`. Each batch stores a coverage report per collection and every refused document with the reason.
 
+## A coverage plan in CI
+
+A seed falls behind the schema quietly: someone adds a field, and the test data never has it. A coverage plan stops that. It says, for every collection, whether the seed generates it (with a plan for every field), refers to it (`existing`) or skips it, each with a reason. `checkCoveragePlan` compares the plan with your Payload config offline, with no database and no key, and lists every gap: a new collection or field without a plan, a skip without a reason, a required field skipped, a select value or field the schema no longer has, a relationship to something the plan doesn't cover.
+
+```ts
+// test/seed-coverage.test.ts
+import { assertCoveragePlan } from '@captiveorigins/payload-plugin-seed'
+import config from '../src/payload.config'
+import plan from '../seed/coverage-plan'
+
+it('the seed plan covers the schema', async () => assertCoveragePlan(await config, plan))
+```
+
+Start from `draftCoveragePlan(config)`, which plans every field of every collection as filled, then mark what's existing or skipped. Every value of a filled select appears at least 3 times in big and once in small, unless the plan says otherwise (`selectMinimums` lists them).
+
 ## Never in production
 
 - `allow()` is required; without it, or when it returns false, nothing is generated and the admin is hidden.
