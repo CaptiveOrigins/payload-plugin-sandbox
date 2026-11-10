@@ -12,7 +12,7 @@ import { readCollection, type CollectionModel, type FieldModel } from './schema.
 import { readSettings, settingsProblems, settingsSlug } from './settings.js'
 import { measureCluster, planCounts, type SizePlan } from './sizing.js'
 import { lexical } from './values.js'
-import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SeedOptions, SeedPlan, TextJob, TextSource } from './types.js'
+import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SeedOptions, SeedPlan, TextEstimate, TextJob, TextSource } from './types.js'
 
 export const MARKER = 'sandbox'
 /** The batch a seeded document belongs to, kept on the document itself (0.4.0): no register document per record. */
@@ -59,9 +59,46 @@ export type RunInput = {
   resume?: string
   /** Writes the text people read (Claude, or anything else); without it, word lists. */
   texts?: TextSource
+  /** The amount a person confirmed for writing text, when the estimate is above the settings' "ask above". */
+  confirmSpendUSD?: number
+  /** Internal: stop after the text estimate (see `estimateRun`). */
+  estimateOnly?: boolean
+}
+
+export type RunEstimate = TextEstimate & { records: number; askAboveUSD: number; capUSD: number }
+
+class EstimateOnly extends Error {
+  constructor(public estimate: RunEstimate) {
+    super('estimate only')
+  }
+}
+
+/**
+ * What a run's text would cost, before anything is written or spent: sizes the counts, describes
+ * every record, and asks the text source for its estimate. Null when there's no text to write.
+ */
+export async function estimateRun(payload: Payload, options: SeedOptions, input: RunInput = {}): Promise<RunEstimate | null> {
+  try {
+    await run(payload, options, { ...input, estimateOnly: true })
+    return null
+  } catch (e) {
+    if (e instanceof EstimateOnly) return e.estimate
+    throw e
+  }
 }
 
 const PROGRESS_EVERY = 500
+
+/** A big seed's text could cost more than the settings' "ask above" amount: the run needs `confirmSpendUSD` of at least `worstUSD`. */
+export class SpendNeedsConfirmation extends SeedRefused {
+  constructor(
+    public worstUSD: number,
+    public expectedUSD: number,
+  ) {
+    super(`Writing the text could cost up to $${worstUSD.toFixed(2)} (about $${expectedUSD.toFixed(2)} expected). Confirm that amount to run.`)
+    this.name = 'SpendNeedsConfirmation'
+  }
+}
 
 /** Free-text fields worth writing well: text, textarea and rich text that aren't slugs, emails, links or unique. */
 export function writableText(fields: FieldModel[]): FieldModel[] {
@@ -160,80 +197,15 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
     const { docs } = await payload.find({ collection: collection as never, where: query.where, limit: query.limit ?? 50, depth: 0, overrideAccess: true })
     pools.set(collection, (docs as unknown as { id: string }[]).map((d) => String(d.id)))
   }
-  const fields = { seed, status: 'running', selection: selected, ...(plan ? { plan } : {}) }
-  const batch = resumed
-    ? String(resumed.id)
-    : input.batch
-      ? String(((await payload.update({ collection: slugs.batches as never, id: input.batch, data: fields as never, overrideAccess: true })) as unknown as { id: string }).id)
-      : String(((await payload.create({ collection: slugs.batches as never, data: { name: name ?? `Seed ${new Date().toISOString().slice(0, 16)}`, ...fields } as never, overrideAccess: true })) as unknown as { id: string }).id)
-  if (resumed) await payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
-  const failures: Failure[] = []
   let serial = 0
-  let position = 0
-  const context = { sandbox: { batch }, disableRevalidate: true }
-  /** Makes unique values (emails, slugs) unique across batches as well as within one. */
-  const tag = batch.slice(-5).toLowerCase()
+  /** Makes unique values (emails, slugs) unique across batches as well as within one; set once the batch exists. */
+  let tag = resumed ? String(resumed.id).slice(-5).toLowerCase() : ''
   const emailDomain = options.emailDomain ?? 'example.invalid'
-  const configOf = (slug: string) => payload.config.collections.find((c) => c.slug === slug)
-  const concurrency = Math.max(1, Math.min(16, options.concurrency ?? 4))
-  const saveProgress = (extra: Record<string, unknown> = {}) => payload.update({ collection: slugs.batches as never, id: batch, data: { report: { progress, sizing, counts, ...extra } } as never, overrideAccess: true })
-
-  const useRecords = options.register === 'records'
-  const register = async (collection: string, id: string) => {
-    pools.set(collection, [...(pools.get(collection) ?? []), id])
-    if (useRecords) await payload.create({ collection: slugs.records as never, data: { batch, collection, docId: id, order: position++ } as never, overrideAccess: true })
-  }
-  /** Adopts a document a recipe made itself (already marked) into this batch, so removing the batch removes it. */
-  const track = async (collection: string, id: string) => {
-    await register(collection, id)
-    if (!useRecords) await payload.update({ collection: collection as never, id, data: { [MARKER_BATCH]: batch } as never, overrideAccess: true, context })
-  }
-  const create = async (collection: string, data: Record<string, unknown>, opts: { draft?: boolean; case?: Record<string, string> } = {}): Promise<string | null> => {
-    const cfg = configOf(collection)
-    const body: Record<string, unknown> = { ...data, [MARKER]: true, ...(useRecords ? {} : { [MARKER_BATCH]: batch }) }
-    if (cfg?.auth && !body.password) body.password = randomBytes(24).toString('base64url') // never usable: not stored anywhere
-    let file: { data: Buffer; mimetype: string; name: string; size: number } | undefined
-    if (cfg?.upload) {
-      const n = ++serial
-      const mimeTypes = (typeof cfg.upload === 'object' ? cfg.upload.mimeTypes : undefined) ?? []
-      const wantsImage = !mimeTypes.length || mimeTypes.some((m) => m.startsWith('image/') || m === '*/*')
-      if (wantsImage) {
-        const frnd = rnd.fork(`file:${n}`)
-        const hue = (): [number, number, number] => [frnd.int(80, 240), frnd.int(80, 240), frnd.int(80, 240)]
-        const png = placeholderPng(64, 48, hue(), hue())
-        file = { data: png, mimetype: 'image/png', name: `seed-${n}.png`, size: png.length }
-        if (!body.alt) body.alt = 'Seed placeholder image'
-      } else {
-        const text = Buffer.from(`Seed file ${n}\n`)
-        file = { data: text, mimetype: mimeTypes.find((m) => m.startsWith('text/')) ?? 'text/plain', name: `seed-${n}.txt`, size: text.length }
-      }
-    }
-    try {
-      const doc = await payload.create({ collection: collection as never, data: body as never, overrideAccess: true, context, ...(opts.draft ? { draft: true } : {}), ...(file ? { file } : {}) })
-      await register(collection, String(doc.id))
-      return String(doc.id)
-    } catch (e) {
-      failures.push({ collection, ...(opts.case ? { case: opts.case } : {}), message: message(e) })
-      return null
-    }
-  }
-  const update = async (collection: string, id: string, data: Record<string, unknown>) => {
-    try {
-      await payload.update({ collection: collection as never, id, data: data as never, overrideAccess: true, context })
-    } catch (e) {
-      failures.push({ collection, message: `update: ${message(e)}` })
-    }
-  }
-  const baseCtx = { payload, rnd, batch, created: (c: string) => pools.get(c) ?? [], create, update, track }
   const deferredPaths = new Set(deferred.map((d) => `${d.from}:${d.path}`))
-  const reports: BatchReport['collections'] = []
-  const personasDone: PersonaReport[] = []
-  const planned = plan?.personas ?? options.personas ?? []
-
   // On resume: what the batch already made is in the pools, and counted.
   if (resumed)
     for (const slug of order) {
-      const { docs } = await payload.find({ collection: slug as never, where: { [MARKER_BATCH]: { equals: batch } } as never, sort: 'createdAt', pagination: false, depth: 0, overrideAccess: true, draft: true, select: {} as never })
+      const { docs } = await payload.find({ collection: slug as never, where: { [MARKER_BATCH]: { equals: resumed.id } } as never, sort: 'createdAt', pagination: false, depth: 0, overrideAccess: true, draft: true, select: {} as never })
       if (docs.length) pools.set(slug, (docs as unknown as { id: unknown }[]).map((d) => String(d.id)))
     }
 
@@ -287,6 +259,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
   // Text pass: describe every document code will make, and have the text written in one go.
   let texts = new Map<string, Record<string, string>>()
   const textStats = { requested: 0, written: 0 }
+  let textReport: Record<string, unknown> | undefined
   if (textSource) {
     const jobs: TextJob[] = []
     for (const slug of order) {
@@ -304,10 +277,84 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
     }
     textStats.requested = jobs.length
     if (jobs.length) {
-      texts = await textSource(jobs, { seed, batch })
+      const settingsForText = { models: settings.models, spend: settings.spend }
+      const estimate = await textSource.estimate?.(jobs, settingsForText)
+      if (input.estimateOnly) throw new EstimateOnly({ ...(estimate ?? { requests: 0, worstUSD: 0, expectedUSD: 0, cached: 0 }), records: jobs.length, askAboveUSD: settings.spend.askAboveUSD, capUSD: settings.spend.capUSD })
+      if (estimate && estimate.worstUSD > settings.spend.askAboveUSD && !((input.confirmSpendUSD ?? 0) >= estimate.worstUSD))
+        throw new SpendNeedsConfirmation(estimate.worstUSD, estimate.expectedUSD)
+      const out = await textSource(jobs, { seed, settings: settingsForText })
+      texts = out instanceof Map ? out : out.texts
+      textReport = out instanceof Map ? undefined : out.report
       textStats.written = texts.size
     }
   }
+
+  if (input.estimateOnly) return null as never
+  const fields = { seed, status: 'running', selection: selected, ...(plan ? { plan } : {}) }
+  const batch = resumed
+    ? String(resumed.id)
+    : input.batch
+      ? String(((await payload.update({ collection: slugs.batches as never, id: input.batch, data: fields as never, overrideAccess: true })) as unknown as { id: string }).id)
+      : String(((await payload.create({ collection: slugs.batches as never, data: { name: name ?? `Seed ${new Date().toISOString().slice(0, 16)}`, ...fields } as never, overrideAccess: true })) as unknown as { id: string }).id)
+  if (resumed) await payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
+  tag = batch.slice(-5).toLowerCase()
+  const failures: Failure[] = []
+  let position = 0
+  const context = { sandbox: { batch }, disableRevalidate: true }
+  const configOf = (slug: string) => payload.config.collections.find((c) => c.slug === slug)
+  const concurrency = Math.max(1, Math.min(16, options.concurrency ?? 4))
+  const saveProgress = (extra: Record<string, unknown> = {}) => payload.update({ collection: slugs.batches as never, id: batch, data: { report: { progress, sizing, counts, ...extra } } as never, overrideAccess: true })
+
+  const useRecords = options.register === 'records'
+  const register = async (collection: string, id: string) => {
+    pools.set(collection, [...(pools.get(collection) ?? []), id])
+    if (useRecords) await payload.create({ collection: slugs.records as never, data: { batch, collection, docId: id, order: position++ } as never, overrideAccess: true })
+  }
+  /** Adopts a document a recipe made itself (already marked) into this batch, so removing the batch removes it. */
+  const track = async (collection: string, id: string) => {
+    await register(collection, id)
+    if (!useRecords) await payload.update({ collection: collection as never, id, data: { [MARKER_BATCH]: batch } as never, overrideAccess: true, context })
+  }
+  const create = async (collection: string, data: Record<string, unknown>, opts: { draft?: boolean; case?: Record<string, string> } = {}): Promise<string | null> => {
+    const cfg = configOf(collection)
+    const body: Record<string, unknown> = { ...data, [MARKER]: true, ...(useRecords ? {} : { [MARKER_BATCH]: batch }) }
+    if (cfg?.auth && !body.password) body.password = randomBytes(24).toString('base64url') // never usable: not stored anywhere
+    let file: { data: Buffer; mimetype: string; name: string; size: number } | undefined
+    if (cfg?.upload) {
+      const n = ++serial
+      const mimeTypes = (typeof cfg.upload === 'object' ? cfg.upload.mimeTypes : undefined) ?? []
+      const wantsImage = !mimeTypes.length || mimeTypes.some((m) => m.startsWith('image/') || m === '*/*')
+      if (wantsImage) {
+        const frnd = rnd.fork(`file:${n}`)
+        const hue = (): [number, number, number] => [frnd.int(80, 240), frnd.int(80, 240), frnd.int(80, 240)]
+        const png = placeholderPng(64, 48, hue(), hue())
+        file = { data: png, mimetype: 'image/png', name: `seed-${n}.png`, size: png.length }
+        if (!body.alt) body.alt = 'Seed placeholder image'
+      } else {
+        const text = Buffer.from(`Seed file ${n}\n`)
+        file = { data: text, mimetype: mimeTypes.find((m) => m.startsWith('text/')) ?? 'text/plain', name: `seed-${n}.txt`, size: text.length }
+      }
+    }
+    try {
+      const doc = await payload.create({ collection: collection as never, data: body as never, overrideAccess: true, context, ...(opts.draft ? { draft: true } : {}), ...(file ? { file } : {}) })
+      await register(collection, String(doc.id))
+      return String(doc.id)
+    } catch (e) {
+      failures.push({ collection, ...(opts.case ? { case: opts.case } : {}), message: message(e) })
+      return null
+    }
+  }
+  const update = async (collection: string, id: string, data: Record<string, unknown>) => {
+    try {
+      await payload.update({ collection: collection as never, id, data: data as never, overrideAccess: true, context })
+    } catch (e) {
+      failures.push({ collection, message: `update: ${message(e)}` })
+    }
+  }
+  const baseCtx = { payload, rnd, batch, created: (c: string) => pools.get(c) ?? [], create, update, track }
+  const reports: BatchReport['collections'] = []
+  const personasDone: PersonaReport[] = []
+  const planned = plan?.personas ?? options.personas ?? []
 
   for (const slug of order) {
     const model = models.find((m) => m.slug === slug)!
@@ -389,7 +436,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
     progress.done.push(':after')
   }
 
-  const report: BatchReport = { batch, seed, order, personas: personasDone, collections: reports, failures, cycles, ...(sizing ? { sizing } : {}), ...(Object.keys(counts).length ? { counts } : {}), ...(textSource ? { texts: textStats } : {}), progress }
+  const report: BatchReport = { batch, seed, order, personas: personasDone, collections: reports, failures, cycles, ...(sizing ? { sizing } : {}), ...(Object.keys(counts).length ? { counts } : {}), ...(textSource ? { texts: { ...textReport, ...textStats } } : {}), progress }
   await payload.update({ collection: slugs.batches as never, id: batch, data: { status: failures.length ? 'done-with-failures' : 'done', report } as never, overrideAccess: true })
   return report
 }

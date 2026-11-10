@@ -410,3 +410,29 @@ describe('big seeds (0.4.0)', () => {
     await removeSeed(payload, big, { batch: report.batch })
   })
 })
+
+describe('asking before spending (0.4.0)', () => {
+  it('stops before writing anything when text could cost more than "ask above", and runs once the amount is confirmed', async () => {
+    const { estimateRun, SpendNeedsConfirmation } = await import('../src/index.js')
+    let wrote = 0
+    const texts = Object.assign(
+      async (jobs: { key: string }[]) => {
+        wrote += jobs.length
+        return new Map(jobs.map((j) => [j.key, { title: 'Confirmed text' }]))
+      },
+      { estimate: () => ({ requests: 2, worstUSD: 20, expectedUSD: 6, cached: 0 }) },
+    )
+    const costly: SeedOptions = { ...options, texts: texts as never }
+    const batchesBefore = (await payload.count({ collection: 'sandbox-batches' as never })).totalDocs
+    const estimate = await estimateRun(payload, costly, { seed: 'spend-1', collections: ['groups'], counts: { groups: 12 }, size: 'big' })
+    expect(estimate).toMatchObject({ worstUSD: 20, expectedUSD: 6, askAboveUSD: 5, capUSD: 10 })
+    await expect(runSeed(payload, costly, { seed: 'spend-1', collections: ['groups'], counts: { groups: 12 }, size: 'big' })).rejects.toThrow(SpendNeedsConfirmation)
+    expect(wrote).toBe(0)
+    expect((await payload.count({ collection: 'sandbox-batches' as never })).totalDocs).toBe(batchesBefore)
+    await expect(runSeed(payload, costly, { seed: 'spend-1', collections: ['groups'], counts: { groups: 12 }, size: 'big', confirmSpendUSD: 19.99 })).rejects.toThrow(/up to \$20\.00/)
+    const report = await runSeed(payload, costly, { seed: 'spend-1', collections: ['groups'], counts: { groups: 12 }, size: 'big', confirmSpendUSD: 20 })
+    expect(wrote).toBeGreaterThan(0)
+    expect(report.failures).toEqual([])
+    await removeSeed(payload, costly, { batch: report.batch })
+  })
+})

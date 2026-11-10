@@ -21,8 +21,25 @@ const cell: React.CSSProperties = { padding: '4px 12px 4px 0', textAlign: 'start
 async function post(url: string, body: unknown) {
   const res = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   const json = (await res.json().catch(() => null)) as Record<string, unknown> | null
-  if (!res.ok) throw new Error(String(json?.error ?? res.statusText))
+  if (!res.ok) throw Object.assign(new Error(String(json?.error ?? res.statusText)), { body: json })
   return json ?? {}
+}
+
+type Estimate = { worstUSD: number; expectedUSD: number; records: number; cached: number; pricesAsOf?: string }
+const usd = (x: number) => `$${x.toFixed(2)}`
+
+/** Runs; if writing the text could cost more than the settings' "ask above", asks once, naming the amount. */
+async function runAsking(url: string, body: Record<string, unknown>) {
+  try {
+    return await post(url, body)
+  } catch (e) {
+    const detail = (e as { body?: { needsConfirmation?: boolean; estimate?: Estimate } }).body
+    if (!detail?.needsConfirmation || !detail.estimate) throw e
+    const est = detail.estimate
+    const ok = window.confirm(`Writing text for ${est.records.toLocaleString()} records could cost up to ${usd(est.worstUSD)} (about ${usd(est.expectedUSD)} expected${est.cached ? `; ${est.cached.toLocaleString()} already written and free` : ''}${est.pricesAsOf ? `; prices as of ${est.pricesAsOf}` : ''}). Spend up to ${usd(est.worstUSD)}?`)
+    if (!ok) throw new Error('Not run: the spend wasn’t confirmed.')
+    return post(url, { ...body, confirmSpendUSD: Math.ceil(est.worstUSD * 100) / 100 })
+  }
 }
 
 export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { apiPath: string; batchesPath: string; siteHome: string; collections: string[] }) {
@@ -124,7 +141,7 @@ export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { api
         </div>
       </section>
       {batches.map((b) => (
-        <BatchCard key={b.id} batch={b} busy={busy} siteHome={siteHome} onRun={() => act(() => post(`${apiPath}/run`, { batch: b.id, seed: b.seed, size }))} onResume={() => act(() => post(`${apiPath}/run`, { resume: b.id }))} onRemove={() => act(() => post(`${apiPath}/remove`, { batch: b.id }))} onSignIn={(collection, id) => act(async () => {
+        <BatchCard key={b.id} batch={b} busy={busy} siteHome={siteHome} onRun={() => act(() => runAsking(`${apiPath}/run`, { batch: b.id, seed: b.seed, size }))} onResume={() => act(() => runAsking(`${apiPath}/run`, { resume: b.id }))} onRemove={() => act(() => post(`${apiPath}/remove`, { batch: b.id }))} onSignIn={(collection, id) => act(async () => {
           await post(`${apiPath}/sign-in-as`, { collection, id })
           window.location.assign(siteHome)
         })} />
