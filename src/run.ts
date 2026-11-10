@@ -303,7 +303,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
   const context = { sandbox: { batch }, disableRevalidate: true }
   const configOf = (slug: string) => payload.config.collections.find((c) => c.slug === slug)
   const concurrency = Math.max(1, Math.min(16, options.concurrency ?? 4))
-  const saveProgress = (extra: Record<string, unknown> = {}) => payload.update({ collection: slugs.batches as never, id: batch, data: { report: { progress, sizing, counts, ...extra } } as never, overrideAccess: true })
+  const saveProgress = (extra: Record<string, unknown> = {}) => payload.update({ collection: slugs.batches as never, id: batch, data: { report: { order, progress, sizing, counts, ...extra } } as never, overrideAccess: true })
 
   const useRecords = options.register === 'records'
   const register = async (collection: string, id: string) => {

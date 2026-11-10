@@ -1,7 +1,7 @@
 export { seedPlugin } from './plugin.js'
 export { estimateRun, runSeed, generatable, planSize, SpendNeedsConfirmation, writableText, MARKER, type RunEstimate, type RunInput } from './run.js'
 export { DEFAULT_SETTINGS, effectiveSettings, readSettings, settingsProblems, type SeedSettings } from './settings.js'
-export { removeSeed } from './remove.js'
+export { removalOrder, removeSeed } from './remove.js'
 export { assertAllowed, assertConfigAllowed, databaseHost, databaseName, isAllowed, markTestDatabase, SeedRefused } from './guard.js'
 export { pairwise, pairCoverage, type Case, type Dimension } from './coverage.js'
 export { assertCoveragePlan, checkCoveragePlan, draftCoveragePlan, selectMinimums, type CollectionPlan, type CoverageIssue, type CoveragePlan, type CoverageReport, type FieldPlan, type Minimum } from './coveragePlan.js'
