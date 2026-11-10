@@ -49,7 +49,11 @@ export type RunInput = {
   batch?: string
   /** small (default): coverage cases only. big: counts from the settings, sized to the cluster. */
   size?: 'small' | 'big'
-  /** Exact counts per collection, instead of the settings (still at least the coverage cases). */
+  /**
+   * Exact counts per collection, instead of the settings (still at least the coverage cases). Not
+   * sized to the cluster: for tests and code that already checked with `planSize`. Big runs from the
+   * admin always size.
+   */
   counts?: Record<string, number>
   /** Carry on with an interrupted batch: what it already made is kept and counted. */
   resume?: string
@@ -165,6 +169,21 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
     sizing = await planSize(payload, options)
     if (!sizing.ok) throw new SeedRefused(`Refusing a big seed: ${sizing.refused}`)
     counts = sizing.counts
+  }
+  // Carrying on a sized batch: the cluster may have grown since it started, so check again that the
+  // rest still fits under the hard cap (what's already made is in the measurement).
+  if (resumed && sizing) {
+    const settings = await readSettings(payload, options)
+    let usedBytes: number
+    try {
+      usedBytes = (await measureCluster(payload, { databases: settings.databases })).usedBytes
+    } catch (e) {
+      throw new SeedRefused(`Refusing to carry on: the cluster couldn’t be measured (${(e as Error).message}).`)
+    }
+    const made = resumed.report?.progress?.made ?? {}
+    const remaining = Object.entries(counts).reduce((n, [slug, target]) => n + Math.max(0, target - (made[slug] ?? 0)) * (settings.bytesPerRecord[slug] ?? 0) * settings.indirectFactor, 0)
+    const projected = (usedBytes + remaining) / (settings.limitMB * 1024 * 1024)
+    if (!(projected <= settings.hardCap)) throw new SeedRefused(`Refusing to carry on: the rest would take the cluster to ${(projected * 100).toFixed(1)}%, above the hard cap of ${(settings.hardCap * 100).toFixed(1)}%.`)
   }
 
   const all = generatable(payload.config.collections, options)

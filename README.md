@@ -71,7 +71,8 @@ A small seed makes one record per coverage case. A big one makes the coverage ca
 - **Settings in the admin** (`seed-settings`, under Seed): counts per collection as `{ "ceiling", "minimum", "bulk" }`, the target share of the database, its limit, every database on the cluster, measured bytes per record, models and the spend cap. The site's code gives defaults (`seedPlugin({ defaults })`); an empty field uses them.
 - **Sized before anything is written.** A big run measures the cluster and sizes the counts (below). If they don't fit, it refuses and writes nothing. "Check what fits" in the admin shows the counts and the projected share first.
 - **Text people read** comes from `texts` (for example Claude, see below), for big seeds only. Each record is described by the values code chose for it, never ids or real data; code still decides every value that has to be right. Deliberate edge cases keep their odd text. Small seeds use word lists, so CI stays free.
-- **Interrupted runs carry on.** Progress is saved as it goes; "Carry on where it stopped" (or `runSeed(payload, options, { resume: batchId })`) keeps what was made and makes the rest.
+- **Interrupted runs carry on.** Progress is saved as it goes; "Carry on where it stopped" (or `runSeed(payload, options, { resume: batchId })`) keeps what was made and makes the rest, after measuring the cluster again: if the rest would pass the hard cap, it refuses.
+- **Exact counts** (`runSeed(..., { counts })`) skip sizing, for tests and code that already checked with `planSize()`. Big runs from the admin always size.
 - **Speed:** coverage cases are created one at a time, the rest `concurrency` at once (default 4). Unique values (emails, slugs) carry a short batch tag, so batches never collide.
 
 ## Text written by Claude
