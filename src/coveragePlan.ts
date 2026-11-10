@@ -10,8 +10,14 @@ export type FieldPlan =
   | 'fill'
   | { skip: string }
   | {
-      /** Per-value minimums for a select or radio field; values not named here get the plan's `selectMinimum`. */
+      /** Per-value minimums for a select or radio field; values not named here get `minimum`, else the plan's `selectMinimum`. */
       values?: Record<string, Minimum | { skip: string }>
+      /**
+       * This field's minimum for every value not named in `values`, with why (for long lists such as
+       * countries, where every value can't appear several times). Use `{ small: 0, big: 0 }` for
+       * "no minimum per value".
+       */
+      minimum?: Minimum & { reason: string }
     }
 
 /**
@@ -118,11 +124,13 @@ export function checkCoveragePlan(config: SchemaConfig, plan: CoveragePlan): Cov
         for (const size of ['small', 'big'] as const) {
           const need = f.options.reduce((sum, v) => {
             const rule = values?.[v]
-            return sum + (rule ? ('skip' in rule ? 0 : rule[size]) : (plan.selectMinimum ?? DEFAULT_MINIMUM)[size])
+            return sum + (rule ? ('skip' in rule ? 0 : rule[size]) : ((typeof fp === 'object' && 'minimum' in fp && fp.minimum) || plan.selectMinimum || DEFAULT_MINIMUM)[size])
           }, 0)
           if (need > entry.generate[size]) issues.push({ code: 'minimum-unreachable', collection: c.slug, path: f.path, message: `“${c.slug}.${f.path}” needs ${need} records in ${size} for its values' minimums, but the plan makes ${entry.generate[size]}.` })
         }
       }
+      if (typeof fp === 'object' && 'minimum' in fp && fp.minimum && !hasReason({ skip: fp.minimum.reason }))
+        issues.push({ code: 'reason-missing', collection: c.slug, path: f.path, message: `“${c.slug}.${f.path}” sets its own minimum without a reason.` })
       if (typeof fp === 'object' && fp.values) {
         const options = new Set(f.options ?? [])
         for (const [value, rule] of Object.entries(fp.values)) {
@@ -162,10 +170,11 @@ export function selectMinimums(config: SchemaConfig, plan: CoveragePlan, size: k
       const fp = entry.fields[f.path]
       if (!f.options || fp === undefined || (typeof fp === 'object' && 'skip' in fp)) continue
       const values = typeof fp === 'object' ? fp.values : undefined
+      const own = typeof fp === 'object' && 'minimum' in fp && fp.minimum ? fp.minimum[size] : undefined
       for (const value of f.options) {
         const rule = values?.[value]
         if (rule && 'skip' in rule) continue
-        out.push({ collection: c.slug, path: f.path, value, minimum: rule ? rule[size] : fallback })
+        out.push({ collection: c.slug, path: f.path, value, minimum: rule ? rule[size] : (own ?? fallback) })
       }
     }
   }
