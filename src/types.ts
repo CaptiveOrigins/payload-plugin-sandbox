@@ -13,6 +13,12 @@ export type RecipeContext = {
   persona?: Persona
   /** Ids already created in this batch, per collection. */
   created: (collection: string) => string[]
+  /**
+   * This run's counts, sized to the cluster in a big seed (empty in a small one). Kinds that aren't
+   * collections can be sized too (for example "how many stories a recipe tells"): give them a count
+   * rule and a size per record in the settings, and read the result here.
+   */
+  counts: Record<string, number>
   /** Creates a document in this batch (registered for removal, marked as sandbox). */
   create: (collection: string, data: Record<string, unknown>, options?: { draft?: boolean }) => Promise<string | null>
   /** Adds a document the recipe created itself (with the marker set) to this batch, so removal takes it too. */
