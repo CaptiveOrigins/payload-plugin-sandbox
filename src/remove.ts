@@ -87,7 +87,8 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
     if (collection && slug !== collection) continue
     // Collections the site names as safe to remove in bulk (no delete hooks it relies on): one deleteMany,
     // still only records carrying the marker and this batch. Never where the site keeps some of them.
-    if (options.bulkRemove?.includes(slug) && !options.keep?.[slug]) {
+    // (Never for a collection with versions: the plugin refuses that at start-up, and this checks again.)
+    if (options.bulkRemove?.includes(slug) && !options.keep?.[slug] && !payload.config.collections.find((c) => c.slug === slug)?.versions) {
       const where = { and: [{ [MARKER]: { equals: true } }, batch ? { [MARKER_BATCH]: { equals: batch } } : { [MARKER_BATCH]: { exists: true } }] }
       const { totalDocs } = await payload.count({ collection: slug as never, where: where as never, overrideAccess: true })
       if (totalDocs) {

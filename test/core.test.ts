@@ -190,3 +190,13 @@ describe('read-only links', () => {
     expect(checkCoveragePlan({ collections: [accounts, memberships] }, plan).ok).toBe(true)
   })
 })
+
+describe('bulk removal settings', () => {
+  it('refuses collections with versions, and names that aren’t collections, at start-up', () => {
+    const base = { secret: 'x', db: {} as never, collections: [animals, groups, users] }
+    expect(() => seedPlugin({ allow: () => true, bulkRemove: ['groups'] })(base as never)).not.toThrow()
+    expect(() => seedPlugin({ allow: () => true, bulkRemove: ['nope'] })(base as never)).toThrow(/isn't a collection/)
+    const versioned = { ...groups, slug: 'versioned', versions: { drafts: true } }
+    expect(() => seedPlugin({ allow: () => true, bulkRemove: ['versioned'] })({ ...base, collections: [...base.collections, versioned] } as never)).toThrow(/keeps versions/)
+  })
+})

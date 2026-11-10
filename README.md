@@ -122,7 +122,7 @@ Since 0.3.0 each seeded document carries its batch id beside the marker (`sandbo
 
 On a database with automatic indexing off, build the new `sandboxBatch` index the way you build your others.
 
-Removal goes one record at a time with your hooks on, which is slow for big loads. Name collections whose delete hooks don't need to run (no counts to update, no files to remove) in `bulkRemove`, and each is removed with one delete instead: still only the seed's marked records of that batch, and never a collection in `keep`.
+Removal goes one record at a time with your hooks on, which is slow for big loads. Name collections whose delete hooks don't need to run (no counts to update, no files to remove) in `bulkRemove`, and each is removed with one delete instead: still only the seed's marked records of that batch, never a collection in `keep`, and refused at start-up for a collection that keeps versions.
 
 ## Plans, people and the admin area
 

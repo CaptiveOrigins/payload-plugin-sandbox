@@ -37,6 +37,12 @@ export const seedPlugin =
   (options: SeedOptions = {}): Plugin =>
   (config: Config): Config => {
     const slugs = defaultSlugs(options)
+    // Bulk removal skips Payload's version records, so it's refused for collections that keep versions.
+    for (const slug of options.bulkRemove ?? []) {
+      const c = (config.collections ?? []).find((x) => x.slug === slug)
+      if (!c) throw new Error(`Seed: bulkRemove names “${slug}”, which isn't a collection.`)
+      if (c.versions) throw new Error(`Seed: “${slug}” keeps versions, so it can't be removed in bulk (its version records would be left behind). Remove it from bulkRemove.`)
+    }
     const allowedNow = Boolean(options.allow?.())
     const access = async ({ req }: { req: Parameters<NonNullable<SeedOptions['access']>>[0] }) => Boolean(allowedNow && req.user && (await options.access?.(req)))
     const endpoints: Endpoint[] = [
