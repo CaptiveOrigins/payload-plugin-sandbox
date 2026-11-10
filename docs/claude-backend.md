@@ -136,8 +136,11 @@ Each image field points at one shared copy per kind (silhouettes, a small set of
 - Batches, records and markers keep their shapes. New plugin collections: `seed-settings` (global), `seed-texts`, `seed-marker`.
 - The guard gets stricter (section 7, checks 2 and 3). A site upgrading needs to mark its test databases once.
 
-## 14. Open questions
+## 14. Decisions
 
-- **Q1. Default models:** Opus 5.5 to plan and Haiku 5.5 to fill (recommended), or Sonnet 5.5 to plan (cheaper, a little less careful)?
-- **Q2. Default spend cap:** $10 per run (recommended, well above the estimate), or $25?
-- **Q3. Small in CI without Claude** (recommended: free and deterministic), or with Claude through the cache?
+Owner, 2026-11-09, in Helm's chat, relayed word for word. Asked together as "species mix from Seed World's weights (editable in the admin); people's settings mostly default; Opus 5.5 plans, Haiku 5.5 fills; $10 spend cap per run; CI's small seed uses word lists only. Accept all?". Answer: "Accept all (Recommended)".
+
+- **Default models:** Claude Opus 5.5 plans, Claude Haiku 5.5 fills. Both stay settings.
+- **Default spend cap:** $10 per run (`spend.capUSD`).
+- **Small seed in CI:** word lists only, no Claude.
+- **Before the cost estimator ships**, its price table is checked against the live pricing page, and dated.
