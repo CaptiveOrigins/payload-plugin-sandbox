@@ -363,6 +363,22 @@ describe('big seeds (0.4.0)', () => {
     await removeSeed(payload, big, { batch: batch.id })
   })
 
+  it('measures again before carrying on a sized batch, and refuses if the rest no longer fits', async () => {
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { counts: { groups: { ceiling: 80, minimum: 10, bulk: true } }, bytesPerRecord: { groups: 400, users: 900 }, databases: [dbName], limitMB: 4096 } as never })
+    let made = 0
+    const failing: SeedOptions = { ...big, recipes: { groups: { prepare: (data) => { if (++made > 30) throw new Error('connection lost'); return data } } } }
+    await expect(runSeed(payload, failing, { seed: 'resize-1', collections: ['groups'], size: 'big' })).rejects.toThrow(/connection lost/)
+    const batch = (await payload.find({ collection: 'sandbox-batches' as never, where: { seed: { equals: 'resize-1' } } as never, depth: 0 })).docs[0] as unknown as { id: string }
+    // The cluster's limit (as configured) is now far smaller than what's already there.
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { limitMB: 1 } as never })
+    await expect(runSeed(payload, big, { resume: batch.id })).rejects.toThrow(/Refusing to carry on/)
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { limitMB: 4096 } as never })
+    await runSeed(payload, big, { resume: batch.id })
+    expect((await payload.count({ collection: 'groups', where: { sandboxBatch: { equals: batch.id } } })).totalDocs).toBe(80)
+    await removeSeed(payload, big, { batch: batch.id })
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { counts: {}, bytesPerRecord: {}, databases: [], limitMB: null } as never })
+  })
+
   it('writes text from a text source onto the fields it describes, never ids, and leaves edge cases alone', async () => {
     const seen: { describe: string; fields: string[] }[] = []
     const report = await runSeed(payload, big, {
