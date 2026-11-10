@@ -1,6 +1,6 @@
 import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 
-import { assertAllowed, isAllowed, markerSlug, SeedRefused } from './guard.js'
+import { assertAllowed, assertConfigAllowed, markerSlug, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
 import { removeSeed } from './remove.js'
 import { defaultSlugs, MARKER, MARKER_BATCH, runSeed } from './run.js'
@@ -167,8 +167,15 @@ export const seedPlugin =
       collections: [...collections, batches, records, marker],
       onInit: async (payload) => {
         await config.onInit?.(payload)
-        if (await isAllowed(payload, options)) return
-        // Where the sandbox is refused (production), sandbox data must never exist.
+        // Only the configuration checks decide this: an unmarked or unreadable test-database marker
+        // means "don't seed yet", not "this is production". It only logs; nothing is removed here.
+        try {
+          assertConfigAllowed(payload, options)
+          return
+        } catch {
+          /* production, or a database that looks like it */
+        }
+        // Where seeding is refused by configuration (production), seed data must never exist.
         for (const c of collections) {
           if (INTERNAL.has(c.slug)) continue
           try {
