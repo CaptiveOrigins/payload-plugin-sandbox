@@ -1,4 +1,4 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, GlobalConfig } from 'payload'
 
 import { readCollection, type FieldModel } from './schema.js'
 
@@ -26,6 +26,8 @@ export type CoveragePlan = {
   /** Every value of a select or radio field the seed fills appears at least this often. Default 3 in big, 1 in small. */
   selectMinimum?: Minimum
   collections: Record<string, CollectionPlan>
+  /** Every global: referred to as it is (`existing`), or left alone (`skip`), with why. The seed never writes globals. */
+  globals?: Record<string, { existing: string } | { skip: string }>
 }
 
 export type CoverageIssue = {
@@ -38,12 +40,15 @@ export type CoverageIssue = {
     | 'reason-missing'
     | 'relation-unplanned'
     | 'required-skipped'
+    | 'minimum-unreachable'
+    | 'global-unplanned'
+    | 'global-unknown'
   collection: string
   path?: string
   message: string
 }
 
-export type CoverageReport = { ok: boolean; issues: CoverageIssue[]; generated: string[]; existing: string[]; skipped: string[] }
+export type CoverageReport = { ok: boolean; issues: CoverageIssue[]; generated: string[]; existing: string[]; skipped: string[]; globals: string[] }
 
 /** Payload's own collections, and the seed's, are never part of a plan. */
 const INTERNAL = /^(payload-|sandbox-|seed-)/
@@ -55,7 +60,11 @@ function leaves(fields: FieldModel[]): FieldModel[] {
   return fields.flatMap((f) => (f.type === 'group' || f.type === 'array' ? leaves(f.fields ?? []) : f.type === 'blocks' ? (f.blocks ?? []).flatMap((b) => leaves(b.fields).map((l) => ({ ...l, path: l.path.replace(`${f.path}[].`, `${f.path}[].${b.slug}.`) }))) : [f]))
 }
 
-const hasReason = (v: { skip?: unknown; existing?: unknown }) => typeof (v.skip ?? v.existing) === 'string' && String(v.skip ?? v.existing).trim().length > 0
+/** A real reason: not empty, and not a draft's "TODO:" placeholder. */
+const hasReason = (v: { skip?: unknown; existing?: unknown }) => {
+  const r = v.skip ?? v.existing
+  return typeof r === 'string' && r.trim().length > 0 && !/^\s*todo\b/i.test(r)
+}
 
 /**
  * Checks a seed plan against the schema, offline (no database, no key): every collection is
@@ -64,11 +73,13 @@ const hasReason = (v: { skip?: unknown; existing?: unknown }) => typeof (v.skip 
  * seed fills points at something the plan generates or refers to. Anything in the plan the
  * schema no longer has is reported too, so the plan can't go stale quietly.
  */
-export function checkCoveragePlan(config: { collections?: CollectionConfig[] }, plan: CoveragePlan): CoverageReport {
+type SchemaConfig = { collections?: CollectionConfig[]; globals?: GlobalConfig[] }
+
+export function checkCoveragePlan(config: SchemaConfig, plan: CoveragePlan): CoverageReport {
   const issues: CoverageIssue[] = []
   const collections = (config.collections ?? []).filter((c) => !INTERNAL.test(c.slug))
   const slugs = new Set(collections.map((c) => c.slug))
-  const report: CoverageReport = { ok: true, issues, generated: [], existing: [], skipped: [] }
+  const report: CoverageReport = { ok: true, issues, generated: [], existing: [], skipped: [], globals: [] }
 
   for (const slug of Object.keys(plan.collections))
     if (!slugs.has(slug)) issues.push({ code: 'collection-unknown', collection: slug, message: `The plan names “${slug}”, which isn't in the schema any more.` })
@@ -100,6 +111,18 @@ export function checkCoveragePlan(config: { collections?: CollectionConfig[] }, 
         else if (f.required) issues.push({ code: 'required-skipped', collection: c.slug, path: f.path, message: `“${c.slug}.${f.path}” is required, so it can't be skipped.` })
         continue
       }
+      // Per-value minimums must fit in the records made: one value per record, so their sum can't exceed the count.
+      // hasMany fields and fields inside arrays hold several values per record, so they're exempt.
+      if (f.options?.length && !f.hasMany && !f.path.includes('[]')) {
+        const values = typeof fp === 'object' ? fp.values : undefined
+        for (const size of ['small', 'big'] as const) {
+          const need = f.options.reduce((sum, v) => {
+            const rule = values?.[v]
+            return sum + (rule ? ('skip' in rule ? 0 : rule[size]) : (plan.selectMinimum ?? DEFAULT_MINIMUM)[size])
+          }, 0)
+          if (need > entry.generate[size]) issues.push({ code: 'minimum-unreachable', collection: c.slug, path: f.path, message: `“${c.slug}.${f.path}” needs ${need} records in ${size} for its values' minimums, but the plan makes ${entry.generate[size]}.` })
+        }
+      }
       if (typeof fp === 'object' && fp.values) {
         const options = new Set(f.options ?? [])
         for (const [value, rule] of Object.entries(fp.values)) {
@@ -114,12 +137,22 @@ export function checkCoveragePlan(config: { collections?: CollectionConfig[] }, 
       }
     }
   }
+  const globals = config.globals ?? []
+  const globalSlugs = new Set(globals.map((g) => g.slug))
+  for (const slug of Object.keys(plan.globals ?? {}))
+    if (!globalSlugs.has(slug)) issues.push({ code: 'global-unknown', collection: slug, message: `The plan names global “${slug}”, which isn't in the schema any more.` })
+  for (const g of globals) {
+    const entry = plan.globals?.[g.slug]
+    if (!entry) issues.push({ code: 'global-unplanned', collection: g.slug, message: `Global “${g.slug}” has no plan: mark it existing or skip it, with a reason.` })
+    else if (!hasReason(entry)) issues.push({ code: 'reason-missing', collection: g.slug, message: `Global “${g.slug}” has no reason.` })
+    else report.globals.push(g.slug)
+  }
   report.ok = issues.length === 0
   return report
 }
 
 /** The minimum each value of a filled select or radio field must reach, for the realism audit and the generator. */
-export function selectMinimums(config: { collections?: CollectionConfig[] }, plan: CoveragePlan, size: keyof Minimum): { collection: string; path: string; value: string; minimum: number }[] {
+export function selectMinimums(config: SchemaConfig, plan: CoveragePlan, size: keyof Minimum): { collection: string; path: string; value: string; minimum: number }[] {
   const out: { collection: string; path: string; value: string; minimum: number }[] = []
   const fallback = (plan.selectMinimum ?? DEFAULT_MINIMUM)[size]
   for (const c of config.collections ?? []) {
@@ -143,17 +176,21 @@ export function selectMinimums(config: { collections?: CollectionConfig[] }, pla
  * A first plan to review and edit: every collection generated, every field filled. Nothing in it
  * is a decision; it saves typing the paths. Write it to a file, then mark what's existing or skipped.
  */
-export function draftCoveragePlan(config: { collections?: CollectionConfig[] }): CoveragePlan {
+export function draftCoveragePlan(config: SchemaConfig): CoveragePlan {
   const collections: CoveragePlan['collections'] = {}
   for (const c of config.collections ?? []) {
     if (INTERNAL.test(c.slug)) continue
-    collections[c.slug] = { generate: { small: 1, big: 1 }, fields: Object.fromEntries(leaves(readCollection(c).fields).map((f) => [f.path, 'fill' as const])) }
+    const fields = leaves(readCollection(c).fields)
+    // Enough records for every value's minimum on the widest single-value select.
+    const widest = Math.max(1, ...fields.filter((f) => f.options?.length && !f.hasMany && !f.path.includes('[]')).map((f) => f.options!.length))
+    collections[c.slug] = { generate: { small: widest * DEFAULT_MINIMUM.small, big: widest * DEFAULT_MINIMUM.big }, fields: Object.fromEntries(fields.map((f) => [f.path, 'fill' as const])) }
   }
-  return { selectMinimum: DEFAULT_MINIMUM, collections }
+  const globals = Object.fromEntries((config.globals ?? []).map((g) => [g.slug, { existing: 'TODO: say why' }]))
+  return { selectMinimum: DEFAULT_MINIMUM, collections, ...(config.globals?.length ? { globals } : {}) }
 }
 
 /** For a site's test suite: throws with every gap listed, one per line. */
-export function assertCoveragePlan(config: { collections?: CollectionConfig[] }, plan: CoveragePlan): void {
+export function assertCoveragePlan(config: SchemaConfig, plan: CoveragePlan): void {
   const { ok, issues } = checkCoveragePlan(config, plan)
   if (!ok) throw new Error(`Seed coverage plan has ${issues.length} gap${issues.length === 1 ? '' : 's'}:\n${issues.map((i) => `- ${i.message}`).join('\n')}`)
 }

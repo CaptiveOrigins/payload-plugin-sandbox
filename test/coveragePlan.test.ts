@@ -18,7 +18,7 @@ const animals: CollectionConfig = {
 const groups: CollectionConfig = { slug: 'groups', fields: [{ name: 'title', type: 'text', required: true }] }
 const taxa: CollectionConfig = { slug: 'taxa', fields: [{ name: 'name', type: 'text' }] }
 const internal: CollectionConfig = { slug: 'payload-preferences', fields: [{ name: 'key', type: 'text' }] }
-const config = { collections: [animals, groups, taxa, internal] }
+const config = { collections: [animals, groups, taxa, internal], globals: [{ slug: 'settings', fields: [] }] }
 
 const plan = (): CoveragePlan => ({
   collections: {
@@ -26,20 +26,21 @@ const plan = (): CoveragePlan => ({
     groups: { generate: { small: 2, big: 20 }, fields: { title: 'fill' } },
     taxa: { existing: 'Reference data, imported from its source' },
   },
+  globals: { settings: { existing: 'Copied from production' } },
 })
 
 describe('coverage plan', () => {
   it('passes a complete plan and leaves internal collections out', () => {
     const r = checkCoveragePlan(config, plan())
     expect(r.issues).toEqual([])
-    expect(r).toMatchObject({ ok: true, generated: ['animals', 'groups'], existing: ['taxa'], skipped: [] })
+    expect(r).toMatchObject({ ok: true, generated: ['animals', 'groups'], existing: ['taxa'], skipped: [], globals: ['settings'] })
   })
 
   it('fails on a new collection, a new field and a stale entry, and names each', () => {
     const p = plan()
     delete (p.collections.animals as { fields: Record<string, unknown> }).fields.notes
     p.collections.ghosts = { skip: 'gone' }
-    const r = checkCoveragePlan({ collections: [...config.collections, { slug: 'kits', fields: [] }] }, p)
+    const r = checkCoveragePlan({ ...config, collections: [...config.collections, { slug: 'kits', fields: [] }] }, p)
     expect(r.ok).toBe(false)
     expect(r.issues.map((i) => [i.code, i.collection, i.path])).toEqual([
       ['collection-unknown', 'ghosts', undefined],
@@ -69,13 +70,40 @@ describe('coverage plan', () => {
     expect(selectMinimums(config, p, 'small').map((m) => m.minimum)).toEqual([2, 2, 0])
   })
 
-  it('drafts a plan that passes, for review', () => {
+  it('drafts a plan whose only gaps are the reasons a person must write', () => {
     const draft = draftCoveragePlan(config)
     expect(Object.keys(draft.collections)).toEqual(['animals', 'groups', 'taxa'])
-    expect(checkCoveragePlan(config, draft).ok).toBe(true)
+    expect(checkCoveragePlan(config, draft).issues.map((i) => [i.code, i.collection])).toEqual([['reason-missing', 'settings']])
+  })
+
+  it('refuses a TODO placeholder as a reason', () => {
+    const p = plan()
+    p.collections.taxa = { existing: 'todo: say why' }
+    expect(checkCoveragePlan(config, p).issues.map((i) => i.code)).toEqual(['reason-missing'])
   })
 
   it('throws with every gap listed', () => {
-    expect(() => assertCoveragePlan(config, { collections: {} })).toThrow(/3 gaps:\n- “animals” has no plan/)
+    expect(() => assertCoveragePlan(config, { collections: {} })).toThrow(/4 gaps:\n- “animals” has no plan/)
+  })
+
+  it('checks globals: a new one, a stale one and one without a reason', () => {
+    const p = plan()
+    p.globals = { ghost: { skip: 'gone' } }
+    expect(checkCoveragePlan(config, p).issues.map((i) => [i.code, i.collection])).toEqual([['global-unknown', 'ghost'], ['global-unplanned', 'settings']])
+    p.globals = { settings: { existing: '' } }
+    expect(checkCoveragePlan(config, p).issues.map((i) => i.code)).toEqual(['reason-missing'])
+  })
+
+  it('refuses minimums the planned count can never reach, except for fields holding several values', () => {
+    const p = plan()
+    p.collections.animals = { ...(p.collections.animals as { generate: { small: number; big: number }; fields: Record<string, never> }), generate: { small: 1, big: 4 } }
+    // sex: female 3 + male 3 + unknown 1 (override) = 7 in big, 1 + 1 + 0 = 2 in small
+    expect(checkCoveragePlan(config, p).issues.map((i) => [i.code, i.path, i.message.match(/needs (\d+)/)![1]])).toEqual([
+      ['minimum-unreachable', 'sex', '2'],
+      ['minimum-unreachable', 'sex', '7'],
+    ])
+    const many: CollectionConfig = { slug: 'tags', fields: [{ name: 'labels', type: 'select', hasMany: true, options: ['a', 'b', 'c', 'd'] }] }
+    const q: CoveragePlan = { collections: { tags: { generate: { small: 1, big: 1 }, fields: { labels: 'fill' } } } }
+    expect(checkCoveragePlan({ collections: [many] }, q).ok).toBe(true)
   })
 })

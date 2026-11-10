@@ -44,7 +44,7 @@ import plan from '../seed/coverage-plan'
 it('the seed plan covers the schema', async () => assertCoveragePlan(await config, plan))
 ```
 
-Start from `draftCoveragePlan(config)`, which plans every field of every collection as filled, then mark what's existing or skipped. Every value of a filled select appears at least 3 times in big and once in small, unless the plan says otherwise (`selectMinimums` lists them).
+Globals are planned too (`globals`: existing or skipped, with a reason; the seed never writes them). A plan whose per-value minimums need more records than it makes for that collection fails as well. Start from `draftCoveragePlan(config)`, which plans every field of every collection as filled, with enough records for every minimum, then mark what is existing or skipped. Every value of a filled select appears at least 3 times in big and once in small, unless the plan says otherwise (`selectMinimums` lists them).
 
 ## Never in production
 
