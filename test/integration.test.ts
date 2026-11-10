@@ -165,7 +165,7 @@ describe('plans, personas and signing in', () => {
     const report = await runSeed(payload, planOptions, { seed: 'plan-1', plan })
     expect(report.failures).toEqual([])
     expect(report.personas!.map((p) => p.name)).toEqual(['Site Persona', 'Ana Keeper'])
-    expect(report.personas![0]!.email).toMatch(/^site\.persona\.\d+@example\.invalid$/)
+    expect(report.personas![0]!.email).toMatch(/^site\.persona\.[a-z0-9]+@example\.invalid$/)
     const titles = (await payload.find({ collection: 'groups', pagination: false, depth: 0 })).docs.map((d) => (d as unknown as { title: string }).title)
     expect(titles.some((t) => t === 'Rack A' || t === 'Hatchling tubs')).toBe(true)
     const site = await payload.findByID({ collection: 'users', id: report.personas![0]!.id, depth: 0 })
@@ -316,5 +316,81 @@ describe('measuring the cluster', () => {
     // A mistyped or missing database is an error, never 0.
     await expect(measureCluster(payload, { databases: [dbName, `${dbName}_typo`] })).rejects.toThrow(/no collections/)
     await expect(measureCluster(payload, { databases: [dbName, 'bad/name'] })).rejects.toThrow()
+  })
+})
+
+describe('big seeds (0.4.0)', () => {
+  const big: SeedOptions = { ...options, concurrency: 6 }
+
+  it('makes the coverage cases, then more up to the counts, with full pair coverage', async () => {
+    const report = await runSeed(payload, big, { seed: 'big-1', collections: ['animals'], counts: { animals: 150, groups: 30 } })
+    expect(report.failures).toEqual([])
+    const a = report.collections.find((c) => c.collection === 'animals')!
+    expect(a.pairs.covered).toBe(a.pairs.total)
+    expect(a.created).toBe(150)
+    expect(report.collections.find((c) => c.collection === 'groups')!.created).toBe(30)
+    expect((await payload.count({ collection: 'animals', where: { sandboxBatch: { equals: report.batch } }, draft: true } as never)).totalDocs).toBe(150)
+    await removeSeed(payload, big, { batch: report.batch })
+  })
+
+  it('sizes counts from the settings and the cluster, and refuses before writing when they don’t fit', async () => {
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { counts: { groups: { ceiling: 200, minimum: 20, bulk: true }, users: { ceiling: 50, minimum: 5 } }, bytesPerRecord: { groups: 40_000, users: 900 }, databases: [dbName], limitMB: 1, targetShare: 0.8 } as never })
+    const batchesBefore = (await payload.count({ collection: 'sandbox-batches' as never })).totalDocs
+    await expect(runSeed(payload, big, { seed: 'big-2', collections: ['groups'], size: 'big' })).rejects.toThrow(/Refusing a big seed/)
+    expect((await payload.count({ collection: 'sandbox-batches' as never })).totalDocs).toBe(batchesBefore)
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { limitMB: 4096 } as never })
+    const report = await runSeed(payload, big, { seed: 'big-2', collections: ['groups'], size: 'big' })
+    expect(report.sizing?.ok).toBe(true)
+    expect(report.counts).toEqual({ groups: 200, users: 50 })
+    expect(report.collections.find((c) => c.collection === 'groups')!.created).toBe(200)
+    await removeSeed(payload, big, { batch: report.batch })
+    await payload.updateGlobal({ slug: 'seed-settings' as never, data: { counts: {}, bytesPerRecord: {}, databases: [], limitMB: null, targetShare: null } as never })
+  })
+
+  it('carries on after an interruption, keeping what was made and making the rest', async () => {
+    let made = 0
+    const failing: SeedOptions = { ...big, recipes: { groups: { prepare: (data) => { if (++made > 60) throw new Error('connection lost'); return data } } } }
+    await expect(runSeed(payload, failing, { seed: 'resume-1', collections: ['groups'], counts: { groups: 120 } })).rejects.toThrow(/connection lost/)
+    const batch = (await payload.find({ collection: 'sandbox-batches' as never, where: { seed: { equals: 'resume-1' } } as never, depth: 0 })).docs[0] as unknown as { id: string; status: string }
+    expect(batch.status).toBe('running')
+    const partial = (await payload.count({ collection: 'groups', where: { sandboxBatch: { equals: batch.id } } })).totalDocs
+    expect(partial).toBeGreaterThan(0)
+    expect(partial).toBeLessThan(120)
+    const report = await runSeed(payload, big, { resume: batch.id })
+    expect(report.batch).toBe(batch.id)
+    expect((await payload.count({ collection: 'groups', where: { sandboxBatch: { equals: batch.id } } })).totalDocs).toBe(120)
+    await expect(runSeed(payload, big, { resume: batch.id })).rejects.toThrow(/Only a batch that was interrupted/)
+    await removeSeed(payload, big, { batch: batch.id })
+  })
+
+  it('writes text from a text source onto the fields it describes, never ids, and leaves edge cases alone', async () => {
+    const seen: { describe: string; fields: string[] }[] = []
+    const report = await runSeed(payload, big, {
+      seed: 'texts-1',
+      collections: ['groups'],
+      counts: { groups: 25 },
+      texts: async (jobs) => {
+        for (const j of jobs) seen.push({ describe: j.describe, fields: j.fields.map((f) => f.path) })
+        return new Map(jobs.map((j) => [j.key, { title: `Written ${j.key}` }]))
+      },
+    })
+    const groupJobs = seen.filter((s) => s.describe.startsWith('groups;'))
+    // Edge cases keep their deliberately odd text: the rest is written.
+    expect(groupJobs.length).toBeGreaterThan(20)
+    expect(groupJobs.length).toBeLessThan(25)
+    expect(report.texts!.requested).toBe(seen.length)
+    expect(report.texts!.written).toBe(seen.length)
+    expect(groupJobs.every((s) => s.fields.join() === 'title')).toBe(true)
+    expect(seen.every((s) => !/[0-9a-f]{24}/.test(s.describe))).toBe(true)
+    const titles = (await payload.find({ collection: 'groups', where: { sandboxBatch: { equals: report.batch } }, pagination: false, depth: 0 })).docs.map((d) => (d as unknown as { title: string }).title)
+    expect(titles.filter((t) => t.startsWith('Written groups:')).length).toBe(groupJobs.length)
+    await removeSeed(payload, big, { batch: report.batch })
+  })
+
+  it('small seeds never call the site’s text source', async () => {
+    let called = false
+    const report = await runSeed(payload, { ...big, texts: async () => { called = true; return new Map() } }, { seed: 'texts-2', collections: ['users'] })
+    expect(called).toBe(false)
+    await removeSeed(payload, big, { batch: report.batch })
   })
 })

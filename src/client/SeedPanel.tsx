@@ -5,7 +5,13 @@ import React, { useCallback, useEffect, useState } from 'react'
 
 import type { BatchReport, SeedPlan } from '../types.js'
 
-type Batch = { id: string; name: string; status: string; seed?: string; plan?: SeedPlan; report?: (BatchReport & { error?: string }) | null; createdAt: string }
+type Batch = { id: string; name: string; status: string; seed?: string; plan?: SeedPlan; report?: (BatchReport & { error?: string }) | null; createdAt: string; updatedAt?: string }
+type SizePreview = { plan: { ok: boolean; counts: Record<string, number>; fit: string; projectedShare: number; usedBytes: number; limitBytes: number; refused?: string }; settings: { targetShare: number; hardCap: number } }
+
+/** A running batch that hasn't moved for this long was interrupted, and can carry on. */
+const STALE_MS = 10 * 60 * 1000
+const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+const mb = (b: number) => `${(b / 1024 / 1024).toFixed(0)} MB`
 
 const POLL_MS = 3000
 const box: React.CSSProperties = { border: '1px solid var(--theme-elevation-150)', borderRadius: 6, padding: 'var(--base)', marginBottom: 'var(--base)' }
@@ -24,6 +30,8 @@ export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { api
   const [chosen, setChosen] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [size, setSize] = useState<'small' | 'big'>('small')
+  const [preview, setPreview] = useState<SizePreview | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`${batchesPath}?sort=-createdAt&limit=20&depth=0`, { credentials: 'include' })
@@ -70,6 +78,42 @@ export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { api
             ))}
           </select>
         </label>
+        <fieldset style={{ border: 0, padding: 0, margin: '8px 0' }}>
+          <legend>Size</legend>
+          <label style={{ display: 'block' }}>
+            <input type="radio" name="seed-size" checked={size === 'small'} onChange={() => setSize('small')} /> Small: one record per coverage case, word lists only (free)
+          </label>
+          <label style={{ display: 'block' }}>
+            <input type="radio" name="seed-size" checked={size === 'big'} onChange={() => setSize('big')} /> Big: coverage cases, then more up to the counts in Seed settings, sized to fit the database
+          </label>
+        </fieldset>
+        {size === 'big' && (
+          <div style={{ margin: '8px 0' }}>
+            <Button margin={false} buttonStyle="secondary" disabled={busy} onClick={() => void act(async () => {
+              const res = await fetch(`${apiPath}/size`, { credentials: 'include' })
+              const json = (await res.json()) as SizePreview & { error?: string }
+              if (!res.ok) throw new Error(json.error ?? res.statusText)
+              setPreview(json)
+            })}>
+              Check what fits
+            </Button>
+            {preview && (
+              <div aria-live="polite" style={{ marginTop: 8 }}>
+                {preview.plan.ok ? (
+                  <>
+                    <p>{`Now ${mb(preview.plan.usedBytes)} of ${mb(preview.plan.limitBytes)}. After the load: about ${pct(preview.plan.projectedShare)} (target ${pct(preview.settings.targetShare)}, never above ${pct(preview.settings.hardCap)}).`}</p>
+                    <table style={{ borderCollapse: 'collapse' }}>
+                      <thead><tr><th style={cell}>Collection</th><th style={cell}>Records</th></tr></thead>
+                      <tbody>{Object.entries(preview.plan.counts).map(([k, n]) => <tr key={k}><td style={cell}>{k}</td><td style={cell}>{n.toLocaleString()}</td></tr>)}</tbody>
+                    </table>
+                  </>
+                ) : (
+                  <p role="alert" style={{ color: 'var(--theme-error-500)' }}>{`It won’t fit, so a big run would refuse: ${preview.plan.refused}`}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button margin={false} disabled={busy} onClick={() => void plan(true)}>
             Write a plan
@@ -80,7 +124,7 @@ export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { api
         </div>
       </section>
       {batches.map((b) => (
-        <BatchCard key={b.id} batch={b} busy={busy} siteHome={siteHome} onRun={() => act(() => post(`${apiPath}/run`, { batch: b.id, seed: b.seed }))} onRemove={() => act(() => post(`${apiPath}/remove`, { batch: b.id }))} onSignIn={(collection, id) => act(async () => {
+        <BatchCard key={b.id} batch={b} busy={busy} siteHome={siteHome} onRun={() => act(() => post(`${apiPath}/run`, { batch: b.id, seed: b.seed, size }))} onResume={() => act(() => post(`${apiPath}/run`, { resume: b.id }))} onRemove={() => act(() => post(`${apiPath}/remove`, { batch: b.id }))} onSignIn={(collection, id) => act(async () => {
           await post(`${apiPath}/sign-in-as`, { collection, id })
           window.location.assign(siteHome)
         })} />
@@ -89,7 +133,8 @@ export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { api
   )
 }
 
-function BatchCard({ batch, busy, onRun, onRemove, onSignIn }: { batch: Batch; busy: boolean; siteHome: string; onRun: () => void; onRemove: () => void; onSignIn: (collection: string, id: string) => void }) {
+function BatchCard({ batch, busy, onRun, onResume, onRemove, onSignIn }: { batch: Batch; busy: boolean; siteHome: string; onRun: () => void; onResume: () => void; onRemove: () => void; onSignIn: (collection: string, id: string) => void }) {
+  const interrupted = batch.status === 'failed' || (batch.status === 'running' && Date.now() - Date.parse(batch.updatedAt ?? batch.createdAt) > STALE_MS)
   const report = batch.report
   const plan = batch.plan
   const refused = report?.failures ?? []
@@ -103,6 +148,9 @@ function BatchCard({ batch, busy, onRun, onRemove, onSignIn }: { batch: Batch; b
       </p>
       {plan?.summary && <p>{plan.summary}</p>}
       {report?.error && <p style={{ color: 'var(--theme-error-500)' }}>{report.error}</p>}
+      {batch.status === 'running' && report?.progress && <p aria-live="polite">{`Made so far: ${Object.entries(report.progress.made).map(([k, n]) => `${k} ${n.toLocaleString()}`).join(', ')}`}</p>}
+      {report?.sizing?.ok && <p style={muted}>{`Sized to the database: about ${pct(report.sizing.projectedShare)} of its limit after the load.`}</p>}
+      {report?.texts && <p style={muted}>{`Text written for ${report.texts.written.toLocaleString()} of ${report.texts.requested.toLocaleString()} records; the rest use word lists.`}</p>}
       {stories.length > 0 && (
         <>
           <h3 style={{ marginTop: 12 }}>People</h3>
@@ -145,6 +193,7 @@ function BatchCard({ batch, busy, onRun, onRemove, onSignIn }: { batch: Batch; b
               <tr>
                 <th style={cell}>Collection</th>
                 <th style={cell}>Created</th>
+                <th style={cell}>Coverage cases</th>
                 <th style={cell}>Pairs covered</th>
                 <th style={cell}>Refused</th>
               </tr>
@@ -153,7 +202,8 @@ function BatchCard({ batch, busy, onRun, onRemove, onSignIn }: { batch: Batch; b
               {report.collections.map((c) => (
                 <tr key={c.collection}>
                   <td style={cell}>{c.collection}</td>
-                  <td style={cell}>{`${c.created} of ${c.cases}`}</td>
+                  <td style={cell}>{(c.total ?? c.created).toLocaleString()}</td>
+                  <td style={cell}>{c.cases}</td>
                   <td style={cell}>{`${c.pairs.covered} of ${c.pairs.total}`}</td>
                   <td style={cell}>{c.failures}</td>
                 </tr>
@@ -181,7 +231,12 @@ function BatchCard({ batch, busy, onRun, onRemove, onSignIn }: { batch: Batch; b
             Run this plan
           </Button>
         )}
-        {batch.status !== 'running' && (
+        {interrupted && (
+          <Button margin={false} disabled={busy} onClick={onResume}>
+            Carry on where it stopped
+          </Button>
+        )}
+        {(batch.status !== 'running' || interrupted) && (
           <Button margin={false} buttonStyle="secondary" disabled={busy} onClick={onRemove}>
             {batch.status === 'planned' ? 'Discard' : 'Remove everything it made'}
           </Button>

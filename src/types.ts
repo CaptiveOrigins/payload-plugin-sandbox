@@ -60,6 +60,20 @@ export type SeedPlan = {
   personas: Persona[]
 }
 
+/** One record's text to write: what it is (in words, from values code chose) and which fields. */
+export type TextJob = {
+  /** `collection:index`, stable for a seed. */
+  key: string
+  collection: string
+  /** Language code to write in. */
+  language: string
+  describe: string
+  fields: { path: string; type: 'text' | 'textarea' | 'richText'; maxLength?: number }[]
+}
+
+/** Writes text for many records at once; returns values by job key and field path. Missing values keep word-list text. */
+export type TextSource = (jobs: TextJob[], run: { seed: string; batch: string }) => Promise<Map<string, Record<string, string>>>
+
 export type AiRequest = { system: string; prompt: string; schema: Record<string, unknown> }
 
 export type SeedOptions = {
@@ -110,8 +124,17 @@ export type SeedOptions = {
    * seeding refuses to run while it throws: switching effects off in `around` isn't proof they're off.
    */
   assertQuiet?: () => void | Promise<void>
+  /** Defaults for the `seed-settings` global (counts, sizing, models, spend). Admins override them in the admin. */
+  defaults?: Partial<import('./settings.js').SeedSettings>
+  /**
+   * Writes the text on records in big seeds (for example `claudeTexts()`). Small seeds always use
+   * word lists, so CI stays free and deterministic.
+   */
+  texts?: TextSource
+  /** Documents created at once in big seeds (default 4, at most 16). Coverage cases are always one at a time. */
+  concurrency?: number
   /** Slugs of the plugin's collections. */
-  slugs?: { batches?: string; records?: string; marker?: string }
+  slugs?: { batches?: string; records?: string; marker?: string; settings?: string }
 }
 
 export type Failure = { collection: string; case?: Record<string, string>; message: string }
@@ -123,6 +146,8 @@ export type CollectionReport = {
   dimensions: number
   pairs: { covered: number; total: number }
   failures: number
+  /** Documents of this collection in the batch after the run (resumed runs included). */
+  total?: number
 }
 
 export type PersonaReport = Persona & { id: string; email: string }
@@ -135,4 +160,10 @@ export type BatchReport = {
   collections: CollectionReport[]
   failures: Failure[]
   cycles: string[][]
+  /** Big seeds: how the counts were sized to the cluster. */
+  sizing?: import('./sizing.js').SizePlan
+  counts?: Record<string, number>
+  /** Records whose text was requested from the text source, and written by it. */
+  texts?: { requested: number; written: number }
+  progress?: { done: string[]; made: Record<string, number> }
 }

@@ -137,7 +137,7 @@ export function checkCoveragePlan(config: SchemaConfig, plan: CoveragePlan): Cov
       }
     }
   }
-  const globals = config.globals ?? []
+  const globals = (config.globals ?? []).filter((g) => !INTERNAL.test(g.slug))
   const globalSlugs = new Set(globals.map((g) => g.slug))
   for (const slug of Object.keys(plan.globals ?? {}))
     if (!globalSlugs.has(slug)) issues.push({ code: 'global-unknown', collection: slug, message: `The plan names global “${slug}”, which isn't in the schema any more.` })
@@ -185,8 +185,8 @@ export function draftCoveragePlan(config: SchemaConfig): CoveragePlan {
     const widest = Math.max(1, ...fields.filter((f) => f.options?.length && !f.hasMany && !f.path.includes('[]')).map((f) => f.options!.length))
     collections[c.slug] = { generate: { small: widest * DEFAULT_MINIMUM.small, big: widest * DEFAULT_MINIMUM.big }, fields: Object.fromEntries(fields.map((f) => [f.path, 'fill' as const])) }
   }
-  const globals = Object.fromEntries((config.globals ?? []).map((g) => [g.slug, { existing: 'TODO: say why' }]))
-  return { selectMinimum: DEFAULT_MINIMUM, collections, ...(config.globals?.length ? { globals } : {}) }
+  const globals = Object.fromEntries((config.globals ?? []).filter((g) => !INTERNAL.test(g.slug)).map((g) => [g.slug, { existing: 'TODO: say why' }]))
+  return { selectMinimum: DEFAULT_MINIMUM, collections, ...(Object.keys(globals).length ? { globals } : {}) }
 }
 
 /** For a site's test suite: throws with every gap listed, one per line. */
