@@ -39,7 +39,7 @@ Run it from a script (`runSeed(payload, options, { seed: 'demo', collections: ['
 
 ## Where a batch is remembered
 
-Since 0.4.0 each seeded document carries its batch id beside the marker (`sandboxBatch`), and removal finds documents by it: collections in reverse dependency order, newest first within one. There's no register document per record, which matters at scale (about 0.4 KB saved per record, so tens of MB on a big world). Set `register: 'records'` to keep the old register. Batches made either way can still be removed. A recipe that creates documents itself adopts them into the batch with `ctx.track(collection, id)`.
+Since 0.4.0 each seeded document carries its batch id beside the marker (`sandboxBatch`), and removal finds documents by it: collections in reverse dependency order, newest first within one. There's no register document per record, which matters at scale (about 0.4 KB saved per record, so tens of MB on a big world). Set `register: 'records'` to keep the old register. Batches made either way can still be removed. A recipe that creates documents itself adopts them into the batch with `ctx.track(collection, id)`. Removal deletes one document at a time with your hooks on, so a big world takes a while to remove. Name what a removal must never delete with `keep` (per collection, a `where`, for example administrators): matches are skipped even when marked, and listed as kept.
 
 On a database with automatic indexing off, build the new `sandboxBatch` index the way you build your others.
 

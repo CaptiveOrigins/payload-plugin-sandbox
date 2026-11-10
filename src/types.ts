@@ -100,6 +100,11 @@ export type SeedOptions = {
    * Batches made either way can always be removed.
    */
   register?: 'marker' | 'records'
+  /**
+   * Documents a removal never deletes, even when marked: per collection, a `where`
+   * (for example administrators and service accounts). Matches are reported as kept.
+   */
+  keep?: Record<string, Where>
   /** Slugs of the plugin's collections. */
   slugs?: { batches?: string; records?: string }
 }

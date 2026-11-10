@@ -14,7 +14,7 @@ import type { SeedOptions } from './types.js'
  */
 export const removeSeed = (payload: Payload, options: SeedOptions, input: { batch?: string; collection?: string } = {}): Promise<Removed> => (options.around ?? ((task) => task()))(() => remove(payload, options, input))
 
-type Removed = { removed: number; failed: { collection: string; id: string; message: string }[] }
+type Removed = { removed: number; failed: { collection: string; id: string; message: string }[]; kept: { collection: string; id: string }[] }
 
 async function remove(payload: Payload, options: SeedOptions, { batch, collection }: { batch?: string; collection?: string }): Promise<Removed> {
   const slugs = defaultSlugs(options)
@@ -22,7 +22,19 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
   const records = (await payload.find({ collection: slugs.records as never, where: where as never, sort: '-order', pagination: false, depth: 0, overrideAccess: true })).docs as unknown as { id: string; collection: string; docId: string }[]
   let removed = 0
   const failed: { collection: string; id: string; message: string }[] = []
+  const kept: { collection: string; id: string }[] = []
+  // Documents the site keeps whatever happens (`keep`): never deleted, even when marked; reported as kept.
+  const keepCache = new Map<string, Set<string>>()
+  const isKept = async (slug: string, id: string) => {
+    const where = options.keep?.[slug]
+    if (!where) return false
+    if (!keepCache.has(slug)) keepCache.set(slug, new Set(((await payload.find({ collection: slug as never, where: where as never, pagination: false, depth: 0, overrideAccess: true, select: {} as never })).docs as unknown as { id: unknown }[]).map((d) => String(d.id))))
+    if (!keepCache.get(slug)!.has(String(id))) return false
+    kept.push({ collection: slug, id: String(id) })
+    return true
+  }
   for (const r of records) {
+    if (await isKept(r.collection, r.docId)) continue
     try {
       await payload.delete({ collection: r.collection as never, id: r.docId, overrideAccess: true, context: { sandbox: { removing: true }, disableRevalidate: true } })
       removed++
@@ -50,15 +62,16 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
       const { docs } = await payload.find({ collection: slug as never, where: where as never, sort: '-id', limit: 200, depth: 0, overrideAccess: true, select: {} as never })
       if (!docs.length) break
       for (const d of docs as unknown as { id: string }[]) {
+        // Every id is tried once per removal, whatever happens: a document that find still returns but
+        // delete can't reach (a stale copy, a hiding hook) can never keep the loop going.
+        skip.push(String(d.id))
+        if (await isKept(slug, String(d.id))) continue
         try {
           await payload.delete({ collection: slug as never, id: d.id, overrideAccess: true, context: { sandbox: { removing: true }, disableRevalidate: true } })
           removed++
         } catch (e) {
           const msg = (e as Error).message ?? String(e)
-          if (!/not found/i.test(msg)) {
-            failed.push({ collection: slug, id: String(d.id), message: msg })
-            skip.push(String(d.id))
-          }
+          if (!/not found/i.test(msg)) failed.push({ collection: slug, id: String(d.id), message: msg })
         }
       }
     }
@@ -67,8 +80,8 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
     const batches = (await payload.find({ collection: slugs.batches as never, where: (batch ? { id: { equals: batch } } : {}) as never, pagination: false, depth: 0, overrideAccess: true })).docs as unknown as { id: string }[]
     for (const b of batches) {
       const left = await payload.count({ collection: slugs.records as never, where: { batch: { equals: b.id } } as never, overrideAccess: true })
-      if (!left.totalDocs && !failed.length) await payload.delete({ collection: slugs.batches as never, id: b.id, overrideAccess: true })
+      if (!left.totalDocs && !failed.length && !kept.length) await payload.delete({ collection: slugs.batches as never, id: b.id, overrideAccess: true })
     }
   }
-  return { removed, failed }
+  return { removed, failed, kept }
 }

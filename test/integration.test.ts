@@ -12,6 +12,8 @@ const url = BASE.replace(/\/(\?|$)/, `/${dbName}$1`)
 const users: CollectionConfig = { slug: 'users', auth: true, fields: [{ name: 'name', type: 'text' }, { name: 'roles', type: 'select', hasMany: true, options: ['admin', 'keeper', 'member'] }] }
 const media: CollectionConfig = { slug: 'media', upload: { mimeTypes: ['image/*'] }, fields: [{ name: 'alt', type: 'text', required: true }] }
 const groups: CollectionConfig = { slug: 'groups', fields: [{ name: 'title', type: 'text', required: true }, { name: 'owner', type: 'relationship', relationTo: 'users', required: true }] }
+/** Its delete always says "not found", as a stale copy or a hiding hook would. */
+const ghosts: CollectionConfig = { slug: 'ghosts', fields: [{ name: 'title', type: 'text' }], hooks: { beforeDelete: [() => { throw new Error('Document not found') }] } }
 const animals: CollectionConfig = {
   slug: 'animals',
   versions: { drafts: true },
@@ -41,7 +43,7 @@ beforeAll(async () => {
     config: await buildConfig({
       secret: 'sandbox-test-secret',
       db: mongooseAdapter({ url }),
-      collections: [users, media, groups, animals],
+      collections: [users, media, groups, animals, ghosts],
       plugins: [seedPlugin(options)],
       typescript: { autoGenerate: false },
       upload: {},
@@ -57,7 +59,7 @@ afterAll(async () => {
 describe('a real sandbox run', () => {
   it('creates every collection in order with full pair coverage, marks and registers every document', async () => {
     const report = await runSeed(payload, options, { seed: 'test-1' })
-    expect(report.order).toEqual(['media', 'users', 'groups', 'animals'])
+    expect(report.order).toEqual(['ghosts', 'media', 'users', 'groups', 'animals'])
     expect(report.failures).toEqual([])
     for (const c of report.collections) {
       expect(c.created).toBe(c.cases)
@@ -237,5 +239,26 @@ describe('the batch id on the marker (0.4.0)', () => {
     expect(adopted.sandboxBatch).toBe(report.batch)
     await removeSeed(payload, adopting, { batch: report.batch })
     expect((await payload.count({ collection: 'users', where: { email: { equals: 'made-by-recipe@example.invalid' } } })).totalDocs).toBe(0)
+  })
+
+  it('ends even when a delete always says "not found"', async () => {
+    const report = await runSeed(payload, options, { seed: 'ghosts-1', collections: ['ghosts'] })
+    expect(report.collections[0]!.created).toBeGreaterThan(0)
+    const result = await removeSeed(payload, options, { batch: report.batch, collection: 'ghosts' })
+    expect(result.failed).toEqual([])
+    expect(result.removed).toBe(0)
+  })
+
+  it('never deletes what the site keeps, even when marked, and reports it', async () => {
+    const report = await runSeed(payload, options, { seed: 'keep-1', collections: ['users'] })
+    const seeded = (await payload.find({ collection: 'users', where: { sandboxBatch: { equals: report.batch } }, depth: 0, pagination: false })).docs as unknown as { id: string; email: string }[]
+    const keeper = seeded[0]!
+    const keeping: SeedOptions = { ...options, keep: { users: { email: { equals: keeper.email } } } }
+    const result = await removeSeed(payload, keeping, { batch: report.batch })
+    expect(result.kept).toEqual([{ collection: 'users', id: String(keeper.id) }])
+    expect(result.removed).toBe(seeded.length - 1)
+    expect((await payload.findByID({ collection: 'users', id: keeper.id, depth: 0 })).id).toBe(keeper.id)
+    // A batch with kept documents isn't forgotten.
+    expect((await payload.count({ collection: 'sandbox-batches' as never, where: { id: { equals: report.batch } } as never })).totalDocs).toBe(1)
   })
 })
