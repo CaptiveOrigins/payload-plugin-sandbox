@@ -74,6 +74,26 @@ A small seed makes one record per coverage case. A big one makes the coverage ca
 - **Interrupted runs carry on.** Progress is saved as it goes; "Carry on where it stopped" (or `runSeed(payload, options, { resume: batchId })`) keeps what was made and makes the rest.
 - **Speed:** coverage cases are created one at a time, the rest `concurrency` at once (default 4). Unique values (emails, slugs) carry a short batch tag, so batches never collide.
 
+## Text written by Claude
+
+For big seeds, `claudeTexts()` writes the text people read (names, titles, notes, bios) with Claude:
+
+```ts
+import { claudeTexts, fileTextCache, seedPlugin } from '@captiveorigins/payload-plugin-seed'
+
+seedPlugin({
+  // ...
+  texts: claudeTexts({ about: 'A site for reptile keepers.', cache: fileTextCache('.cache/seed-texts.jsonl') }),
+})
+```
+
+- **Key:** `ANTHROPIC_API_KEY` (or `apiKeyEnv`), read on the server only when a run needs it; never stored, logged or shown. Without one, nothing is sent and word lists stay. Install `@anthropic-ai/sdk` (an optional peer dependency).
+- **Models:** the settings' `models.fill` (default Claude Haiku 5.5), through the Message Batches API at half price, with structured JSON output and the system prompt cached.
+- **What's sent:** a description of each record built from values code chose (a status, a date, a species), never ids, documents or anything real from the database.
+- **Cost, asked first:** before a big run, the admin shows the worst case and the likely cost, with the date of the price table. Above `spend.askAboveUSD` (default $5) it asks once, naming the amount. `spend.capUSD` (default $10) is a hard cap: requests go out only while their worst case (every output token used) still fits, so the cap holds whatever comes back. `estimateRun()` gives the same figures in code.
+- **Checked before use:** every value must parse, fit its field, and pass content rules: no placeholder text, no "Seed:" or "Sandbox:", no email or link outside example domains, no blocked words (`blockList`). Refused, errored or expired requests are retried once outside the batch, then fall back to word lists. The batch report counts all of it.
+- **Text cache:** answers are kept by what was asked (seed, prompt version, model, language, record description). `fileTextCache(path)` keeps them in a file outside the database, so a reload pays only for what changed.
+
 ## Size: fill to a share of the cluster
 
 Small database tiers have hard limits, and a seed that overshoots can stop the site writing. Seed measures and plans before it loads:

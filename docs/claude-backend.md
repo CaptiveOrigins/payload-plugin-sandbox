@@ -1,6 +1,6 @@
 # Design note: writing seed data with Claude
 
-Draft, 2026-11-09, for review. Nothing here is built. This is how the plugin turns from "coverage-first test data" into **Seed for Payload: realistic test data at scale, written with Claude**. The rename itself is done in 0.3.0 (`payload-plugin-seed`, `seedPlugin`, `/admin/seed`); stored names (`sandbox-batches`, `sandbox-records`, the `sandbox` marker) stay, so earlier batches remain removable.
+Draft, 2026-11-09, reviewed. Built in 0.4.0 (2026-11-10): the guard (section 7), big seeds and settings (sections 2 and 12), and Claude's fill (sections 3 to 6). Not built yet: Opus plans at scale, the realism audit (section 10), snapshots, and copying settings from production in the plugin. This is how the plugin turns from "coverage-first test data" into **Seed for Payload: realistic test data at scale, written with Claude**. The rename itself is done in 0.3.0 (`payload-plugin-seed`, `seedPlugin`, `/admin/seed`); stored names (`sandbox-batches`, `sandbox-records`, the `sandbox` marker) stay, so earlier batches remain removable.
 
 What 0.2.1 already does, and keeps doing: reads the schema, fills collections in dependency order with pairwise coverage, writes through Payload's Local API so the site's own rules run, registers every document for removal, marks every document, refuses production, and offers "Sign in as" for generated accounts. What it lacks: scale (it makes tens of records, not tens of thousands), human-sounding text at that scale, and a way to keep a test site full on a schedule.
 
@@ -57,7 +57,7 @@ Fill requests are grouped by collection and language: one request asks for the t
 - **Batches:** fill requests go through the Message Batches API (up to 100,000 requests or 256 MB per batch, usually done within an hour, at most 24 hours, results kept 29 days). The run waits, shows progress, and can be left: the batch id is stored on the run, and a later visit picks up the results.
 - **Structured output:** each request asks for JSON against a schema built from the collection's fields (`output_config.format`), so the answer has a known shape before validation.
 - **Prompt caching:** the system prompt and the world plan go first and are marked for caching, so thousands of requests pay for them once.
-- **A text cache that survives reloads:** every answer is stored by a key made from the seed, the record's structure, the prompt version and the model. A reload with the same seed and prompt pays nothing for text it already has. Changing a prompt or model invalidates only what it touches. The cache lives in a plugin collection, `seed-texts`, and is removable on its own.
+- **A text cache that survives reloads:** every answer is stored by a key made from the record's description, its language, the prompt version and the model. A reload pays nothing for text it already has. Changing a prompt or model invalidates only what it touches. The cache is pluggable; `fileTextCache(path)` keeps it in a file outside the database (built that way 2026-11-10, so a small database tier isn't spent on it).
 - **Refusals and failures:** a request that comes back refused, errored or expired is retried once outside the batch; if it fails again those records fall back to word-list text and the report counts them. A run never stalls on one bad answer.
 
 ## 5. Validation before anything is written
@@ -74,7 +74,7 @@ Claude proposes, code checks. In order:
 
 - Before a run, the admin shows an estimate: tokens in and out per model, cache savings, batch discount, the dollar total, the date of the price table, and how much text is already cached (free). Measured with the token-counting endpoint on a sample of real requests, then scaled.
 - Nothing runs until an admin presses Run on that estimate.
-- `spend.capUSD` is a hard cap: the plugin counts actual usage from every response and stops sending requests when the next one could cross it. Records it couldn't fill get word-list text. The report says the cap was reached.
+- `spend.capUSD` is a hard cap: requests go out only while their worst case (every output token used) still fits, so the cap holds whatever comes back; actual usage is counted from every response. Records it couldn't fill get word-list text. The report says the cap was reached.
 - `spend.askAboveUSD`: any estimate above this needs a second confirmation that names the amount.
 - Every run records its real cost per model.
 
@@ -158,4 +158,4 @@ Owner, 2026-11-09, in Helm's chat, relayed word for word. Asked together as "spe
 - **Default models:** Claude Opus 5.5 plans, Claude Haiku 5.5 fills. Both stay settings.
 - **Default spend cap:** $10 per run (`spend.capUSD`).
 - **Small seed in CI:** word lists only, no Claude.
-- **Before the cost estimator ships**, its price table is checked against the live pricing page, and dated.
+- **Before the cost estimator ships**, its price table is checked against the live pricing page, and dated. Done 2026-11-10: Haiku 5.5 $0.10 / $0.50 (prompts up to 100,000 tokens; every request here stays under 60,000), Opus 5.5 $4 / $20, batches half price, matching the table.

@@ -71,8 +71,20 @@ export type TextJob = {
   fields: { path: string; type: 'text' | 'textarea' | 'richText'; maxLength?: number }[]
 }
 
-/** Writes text for many records at once; returns values by job key and field path. Missing values keep word-list text. */
-export type TextSource = (jobs: TextJob[], run: { seed: string; batch: string }) => Promise<Map<string, Record<string, string>>>
+/** The settings a text source needs. */
+export type TextSettings = { models: { plan: string; fill: string }; spend: { capUSD: number; askAboveUSD: number } }
+
+/** What writing the text would cost: the most it can (every request at its output limit) and what's likely. */
+export type TextEstimate = { requests: number; worstUSD: number; expectedUSD: number; cached: number; pricesAsOf?: string }
+
+/**
+ * Writes text for many records at once; returns values by job key and field path, and optionally a
+ * report (cost, failures) kept on the batch. Missing values keep word-list text.
+ */
+export type TextSource = ((jobs: TextJob[], run: { seed: string; settings: TextSettings }) => Promise<Map<string, Record<string, string>> | { texts: Map<string, Record<string, string>>; report?: Record<string, unknown> }>) & {
+  /** Optional: what it would cost, before anything is written or spent. */
+  estimate?: (jobs: TextJob[], settings: TextSettings) => Promise<TextEstimate> | TextEstimate
+}
 
 export type AiRequest = { system: string; prompt: string; schema: Record<string, unknown> }
 
@@ -164,6 +176,6 @@ export type BatchReport = {
   sizing?: import('./sizing.js').SizePlan
   counts?: Record<string, number>
   /** Records whose text was requested from the text source, and written by it. */
-  texts?: { requested: number; written: number }
+  texts?: { requested: number; written: number } & Record<string, unknown>
   progress?: { done: string[]; made: Record<string, number> }
 }

@@ -3,7 +3,7 @@ import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 import { assertAllowed, assertConfigAllowed, markerSlug, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
 import { removeSeed } from './remove.js'
-import { defaultSlugs, MARKER, MARKER_BATCH, planSize, runSeed } from './run.js'
+import { defaultSlugs, estimateRun, MARKER, MARKER_BATCH, planSize, runSeed, SpendNeedsConfirmation } from './run.js'
 import { readSettings, settingsGlobal, settingsSlug } from './settings.js'
 import { signInAs, SignInRefused } from './signIn.js'
 import type { SeedOptions, SeedPlan } from './types.js'
@@ -57,8 +57,8 @@ export const seedPlugin =
         method: 'post',
         handler: async (req) => {
           if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
-          const raw = ((await req.json?.().catch(() => ({}))) ?? {}) as { seed?: string; collections?: string[]; name?: string; batch?: string; size?: string; resume?: string }
-          const body = { seed: raw.seed, collections: raw.collections, name: raw.name, batch: raw.batch, size: raw.size === 'big' ? ('big' as const) : ('small' as const), resume: typeof raw.resume === 'string' ? raw.resume : undefined }
+          const raw = ((await req.json?.().catch(() => ({}))) ?? {}) as { seed?: string; collections?: string[]; name?: string; batch?: string; size?: string; resume?: string; confirmSpendUSD?: unknown }
+          const body = { seed: raw.seed, collections: raw.collections, name: raw.name, batch: raw.batch, size: raw.size === 'big' ? ('big' as const) : ('small' as const), resume: typeof raw.resume === 'string' ? raw.resume : undefined, confirmSpendUSD: typeof raw.confirmSpendUSD === 'number' && raw.confirmSpendUSD >= 0 ? raw.confirmSpendUSD : undefined }
           try {
             let plan: SeedPlan | undefined
             if (body.batch) {
@@ -67,6 +67,11 @@ export const seedPlugin =
               plan = doc.plan
             }
             await assertAllowed(req.payload, options)
+            if (options.texts && (body.size === 'big' || body.resume)) {
+              const estimate = await estimateRun(req.payload, options, { ...body, plan })
+              if (estimate && estimate.worstUSD > estimate.askAboveUSD && !((body.confirmSpendUSD ?? 0) >= estimate.worstUSD))
+                return Response.json({ error: new SpendNeedsConfirmation(estimate.worstUSD, estimate.expectedUSD).message, needsConfirmation: true, estimate }, { status: 409 })
+            }
             if (options.defer) {
               const batch = body.resume ?? body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Seed ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
               await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
