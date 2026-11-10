@@ -9,6 +9,7 @@ import { applySamples } from './plans.js'
 import { placeholderPng } from './png.js'
 import { random } from './random.js'
 import { readCollection, type CollectionModel, type FieldModel } from './schema.js'
+import { auditBatch } from './realism.js'
 import { readSettings, settingsProblems, settingsSlug } from './settings.js'
 import { measureCluster, planCounts, type SizePlan } from './sizing.js'
 import { lexical } from './values.js'
@@ -459,7 +460,10 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
   }
 
   const report: BatchReport = { batch, seed, order, personas: personasDone, collections: reports, failures, cycles, ...(sizing ? { sizing } : {}), ...(Object.keys(counts).length ? { counts } : {}), ...(textSource ? { texts: { ...textReport, ...textStats } } : {}), progress }
-  await payload.update({ collection: slugs.batches as never, id: batch, data: { status: failures.length ? 'done-with-failures' : 'done', report } as never, overrideAccess: true })
+  // The realism audit reads what was made; it never changes it. Problems mark the run, not the data.
+  if (options.audit !== false) report.realism = await auditBatch(payload, batch, order, { plan: options.coveragePlan, size: input.size === 'big' || resumed ? 'big' : 'small', emailDomain })
+  const status = failures.length ? 'done-with-failures' : report.realism && !report.realism.ok ? 'done-with-problems' : 'done'
+  await payload.update({ collection: slugs.batches as never, id: batch, data: { status, report } as never, overrideAccess: true })
   return report
 }
 

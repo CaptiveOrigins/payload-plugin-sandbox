@@ -140,7 +140,7 @@ export const seedPlugin =
       fields: [
         { name: 'name', type: 'text', required: true },
         { name: 'seed', type: 'text', admin: { description: 'Same seed, same data.' } },
-        { name: 'status', type: 'select', options: ['planned', 'running', 'done', 'done-with-failures', 'failed'].map((v) => ({ label: v, value: v })) },
+        { name: 'status', type: 'select', options: ['planned', 'running', 'done', 'done-with-failures', 'done-with-problems', 'failed'].map((v) => ({ label: v, value: v })) },
         { name: 'selection', type: 'json' },
         { name: 'plan', type: 'json', admin: { description: 'What a run will do: wording, personas and which collections.' } },
         { name: 'report', type: 'json', admin: { description: 'Coverage per collection, and every document the site refused (with why).' } },

@@ -1,5 +1,9 @@
 # Changelog
 
+## Not released yet
+
+- **Realism audit** after every run (`auditBatch`, `report.realism`): repeated long text, distinct names, placeholder text, seed markers, emails and links outside example domains, and, with `coveragePlan`, select values below their minimum. It only reads; problems mark the run `done-with-problems` and show in the admin.
+
 ## 0.4.0 (2026-11-10)
 
 The first version published under this name. 0.3.0 below was prepared but never published (npm refused it after an earlier staging attempt), so anyone coming from `@captiveorigins/payload-plugin-sandbox` 0.2.x moves straight to 0.4.0.

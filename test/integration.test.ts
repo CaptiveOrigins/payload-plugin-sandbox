@@ -436,3 +436,54 @@ describe('asking before spending (0.4.0)', () => {
     await removeSeed(payload, costly, { batch: report.batch })
   })
 })
+
+describe('the realism audit (0.4.0)', () => {
+  it('passes a clean run, and marks a run "done with problems" with what failed, changing nothing', async () => {
+    const clean = await runSeed(payload, options, { seed: 'real-1', collections: ['users', 'groups'] })
+    expect(clean.realism?.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`)).toEqual([])
+    await removeSeed(payload, options, { batch: clean.batch })
+
+    const long = 'A long note about basking, feeding and the morning routine of this one.'
+    const messy: SeedOptions = {
+      ...options,
+      recipes: {
+        groups: {
+          prepare: (data, ctx) => {
+            const n = ctx.created('groups').length
+            const titles = [long, `Lorem ipsum ${n}`, `Seed: group ${n}`, `Write to keeper${n}@mail.test`, `See https://realsite.test/${n}`]
+            return { ...data, title: titles[n % titles.length] }
+          },
+        },
+      },
+    }
+    const report = await runSeed(payload, messy, { seed: 'real-2', collections: ['users', 'groups'], counts: { groups: 20 } })
+    const failed = Object.fromEntries(report.realism!.checks.filter((c) => !c.ok).map((c) => [c.name, c.examples?.length ?? 0]))
+    expect(Object.keys(failed).sort()).toEqual(['Emails only on example domains', 'Links only on example domains', 'Long text not repeated', 'No placeholder text', 'No seed markers in visible text'])
+    const batch = (await payload.findByID({ collection: 'sandbox-batches' as never, id: report.batch, depth: 0 })) as unknown as { status: string }
+    expect(batch.status).toBe('done-with-problems')
+    expect((await payload.count({ collection: 'groups', where: { sandboxBatch: { equals: report.batch } } })).totalDocs).toBe(20)
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+
+  it('checks that people’s names are distinct once there are enough of them', async () => {
+    const same: SeedOptions = { ...options, recipes: { users: { prepare: (data) => ({ ...data, name: 'Pat Same' }) } } }
+    const report = await runSeed(payload, same, { seed: 'real-4', collections: ['users'], counts: { users: 60 } })
+    const check = report.realism!.checks.find((c) => c.name === 'People’s names distinct')!
+    expect(check.ok).toBe(false)
+    expect(check.detail).toMatch(/of 6\d names are distinct/)
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+
+  it('checks select values against the coverage plan on what was really made', async () => {
+    const plan = {
+      collections: {
+        animals: { generate: { small: 10, big: 100 }, fields: { sex: { values: { unknown: { small: 50, big: 50 } } } } },
+      },
+    }
+    const report = await runSeed(payload, { ...options, coveragePlan: plan as never }, { seed: 'real-3', collections: ['animals'] })
+    const check = report.realism!.checks.find((c) => c.name === 'Every select value at its minimum')!
+    expect(check.ok).toBe(false)
+    expect(check.examples!.join()).toMatch(/animals\.sex = unknown: \d+ of 50/)
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+})

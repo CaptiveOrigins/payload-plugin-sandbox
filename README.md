@@ -75,6 +75,18 @@ A small seed makes one record per coverage case. A big one makes the coverage ca
 - **Exact counts** (`runSeed(..., { counts })`) skip sizing, for tests and code that already checked with `planSize()`. Big runs from the admin always size.
 - **Speed:** coverage cases are created one at a time, the rest `concurrency` at once (default 4). Unique values (emails, slugs) carry a short batch tag, so batches never collide.
 
+## Realism audit
+
+After every run, Seed reads what the batch made and checks that it looks like real use. It only reads: a failed check marks the run "done with problems" and lists what failed, with examples. The checks:
+
+- No text of 40 characters or more appears more than twice (ignoring case and punctuation).
+- At least 97% of people's names are distinct, once there are 50 or more.
+- No placeholder text (lorem ipsum), and no "Seed:" or "Sandbox:" in visible text.
+- Emails and links only on example domains (`example.com`, `.org`, `.net`, or `.invalid`).
+- With `coveragePlan` in the options, every select value reaches its minimum in what was really made.
+
+Turn it off with `audit: false`. The result is on the batch (`report.realism`) and in the admin.
+
 ## Text written by Claude
 
 For big seeds, `claudeTexts()` writes the text people read (names, titles, notes, bios) with Claude:
