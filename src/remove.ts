@@ -62,14 +62,18 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
       const { docs } = await payload.find({ collection: slug as never, where: where as never, sort: '-id', limit: 200, depth: 0, overrideAccess: true, select: {} as never })
       if (!docs.length) break
       for (const d of docs as unknown as { id: string }[]) {
-        // Every id is tried once per removal, whatever happens: a document that find still returns but
-        // delete can't reach (a stale copy, a hiding hook) can never keep the loop going.
-        skip.push(String(d.id))
-        if (await isKept(slug, String(d.id))) continue
+        // A deleted document can't come back. Anything else (kept, failed, or "not found" while find still
+        // returns it: a stale copy, a hiding hook) is skipped from then on, so the loop always ends and the
+        // skip list stays small.
+        if (await isKept(slug, String(d.id))) {
+          skip.push(String(d.id))
+          continue
+        }
         try {
           await payload.delete({ collection: slug as never, id: d.id, overrideAccess: true, context: { sandbox: { removing: true }, disableRevalidate: true } })
           removed++
         } catch (e) {
+          skip.push(String(d.id))
           const msg = (e as Error).message ?? String(e)
           if (!/not found/i.test(msg)) failed.push({ collection: slug, id: String(d.id), message: msg })
         }
