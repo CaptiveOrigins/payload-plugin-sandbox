@@ -99,11 +99,11 @@ Side effects are off for every run through the site's `around` wrapper (email, w
 
 Optional, and off unless the site sets it up. For sites that want a test database that looks like production's configuration.
 
-- The plugin connects to production read-only (a separate connection string, `SEED_PROD_READ_URI`, ideally a database user with read rights only) and copies only fields on an allow-list the site supplies.
+- The plugin connects to production read-only (a separate connection string, ideally a database user with read rights only) and copies only fields on an allow-list the site supplies.
 - A field on the list is still refused if its name or value looks like a key, token, secret, webhook, payment id, email credential or postal address. That check fails closed.
 - Unknown fields are skipped and listed in the report. Nothing read from production is ever sent to Claude.
 - Where the site already has its own copy script, the plugin calls it instead (`copySettings: (report) => …`), and needs no production connection string of its own. That's the recommended setup.
-- A scheduled refresh should regenerate only. Copying from production needs a production credential wherever it runs, so the plugin never schedules it: it stays a step a person starts.
+- A site may schedule the copy, but only with a read-only credential, ideally limited to the collections it copies. Before reading anything, the copy asks the database for its own privileges and refuses unless every one is a read, so a credential that can write fails closed. The credential lives in the site's secret store (for example a CI environment secret), never in the plugin's settings.
 - Settings are copied **before** the seed loads, so a copy can't remove seeded records or change ids they point at.
 
 ## 9. Coverage check in CI
