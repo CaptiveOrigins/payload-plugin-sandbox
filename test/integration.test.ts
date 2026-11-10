@@ -234,7 +234,7 @@ describe('sites with their own records', () => {
   })
 })
 
-describe('the batch id on the marker (0.4.0)', () => {
+describe('the batch id on the marker (0.3.0)', () => {
   it('writes no register documents, puts the batch on every document, and removes one batch without touching another', async () => {
     const first = await runSeed(payload, options, { seed: 'marker-1', collections: ['users', 'groups'] })
     const second = await runSeed(payload, options, { seed: 'marker-2', collections: ['users', 'groups'] })
@@ -319,7 +319,7 @@ describe('measuring the cluster', () => {
   })
 })
 
-describe('big seeds (0.4.0)', () => {
+describe('big seeds (0.3.0)', () => {
   const big: SeedOptions = { ...options, concurrency: 6 }
 
   it('makes the coverage cases, then more up to the counts, with full pair coverage', async () => {
@@ -411,7 +411,7 @@ describe('big seeds (0.4.0)', () => {
   })
 })
 
-describe('asking before spending (0.4.0)', () => {
+describe('asking before spending (0.3.0)', () => {
   it('stops before writing anything when text could cost more than "ask above", and runs once the amount is confirmed', async () => {
     const { estimateRun, SpendNeedsConfirmation } = await import('../src/index.js')
     let wrote = 0

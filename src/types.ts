@@ -127,7 +127,7 @@ export type SeedOptions = {
   /** Domain for generated emails; never deliverable. Default example.invalid. */
   emailDomain?: string
   /**
-   * How a batch remembers its documents. `marker` (default since 0.4.0): the batch id sits on each document, which
+   * How a batch remembers its documents. `marker` (default since 0.3.0): the batch id sits on each document, which
    * costs a few bytes instead of a register document per record. `records`: one register document per record, as before.
    * Batches made either way can always be removed.
    */
