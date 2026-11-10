@@ -109,8 +109,10 @@ export type SizeStatus = { usedBytes: number; limitBytes: number; share: number;
 /** For a daily check: ok below `warnAt` (default 0.9), warn below `alertAt` (default 0.96), alert at or above. */
 export function sizeStatus(usedBytes: number, limitBytes: number, { warnAt = 0.9, alertAt = 0.96 } = {}): SizeStatus {
   const share = usedBytes / limitBytes
-  const level = !(limitBytes > 0) || share >= alertAt ? 'alert' : share >= warnAt ? 'warn' : 'ok'
-  return { usedBytes, limitBytes, share, level, message: limitBytes > 0 ? `${mib(usedBytes)} of ${mib(limitBytes)} (${pct(share)})` : 'The limit is unknown.' }
+  // Unknown is never ok: a size or limit that isn't a real number alerts.
+  const known = limitBytes > 0 && Number.isFinite(limitBytes) && usedBytes >= 0 && Number.isFinite(usedBytes)
+  const level = !known || share >= alertAt ? 'alert' : share >= warnAt ? 'warn' : 'ok'
+  return { usedBytes, limitBytes, share, level, message: known ? `${mib(usedBytes)} of ${mib(limitBytes)} (${pct(share)})` : 'The size or limit is unknown.' }
 }
 
 type Db = { command: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>> }
@@ -118,14 +120,18 @@ type MongoLike = { connection?: { getClient?: () => { db: (name: string) => Db }
 
 /**
  * What the cluster holds, measured the way MongoDB Atlas enforces its free-tier limit: uncompressed
- * document data plus index bytes, summed over the named databases (default: the current one).
- * Name every database on the cluster. Throws if any can't be measured: an unknown size is never 0.
+ * document data plus index bytes, summed over the named databases. The list is required and must
+ * name every database on the cluster (the limit counts them all), including the current one.
+ * Throws if any can't be measured or holds no collections (most often a mistyped name): an
+ * unknown size is never 0.
  */
-export async function measureCluster(payload: Payload, { databases }: { databases?: string[] } = {}): Promise<{ usedBytes: number; byDatabase: Record<string, { dataBytes: number; indexBytes: number }> }> {
+export async function measureCluster(payload: Payload, { databases }: { databases: string[] }): Promise<{ usedBytes: number; byDatabase: Record<string, { dataBytes: number; indexBytes: number }> }> {
   const conn = (payload.db as unknown as MongoLike).connection
   if (!conn?.getClient || !conn.name) throw new Error('Measuring needs the MongoDB adapter.')
+  if (!databases?.length) throw new Error('Name every database on the cluster to measure: the limit counts them all.')
+  if (!databases.includes(conn.name)) throw new Error(`The list of databases must include the current one (“${conn.name}”).`)
   const client = conn.getClient()
-  const names = databases?.length ? databases : [conn.name]
+  const names = [...new Set(databases)]
   const byDatabase: Record<string, { dataBytes: number; indexBytes: number }> = {}
   let usedBytes = 0
   for (const name of names) {
@@ -133,6 +139,7 @@ export async function measureCluster(payload: Payload, { databases }: { database
     const dataBytes = Number(stats.dataSize)
     const indexBytes = Number(stats.indexSize)
     if (!Number.isFinite(dataBytes) || !Number.isFinite(indexBytes)) throw new Error(`Database “${name}” couldn’t be measured.`)
+    if (!(Number(stats.collections) > 0)) throw new Error(`Database “${name}” has no collections. Check the name: a mistyped one would count as empty.`)
     byDatabase[name] = { dataBytes, indexBytes }
     usedBytes += dataBytes + indexBytes
   }

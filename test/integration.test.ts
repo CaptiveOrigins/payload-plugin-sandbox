@@ -265,14 +265,17 @@ describe('the batch id on the marker (0.4.0)', () => {
 
 describe('measuring the cluster', () => {
   it('measures documents plus indexes, grows with a load, and refuses a database it can’t measure', async () => {
-    const before = await measureCluster(payload)
+    await expect(measureCluster(payload, { databases: [] })).rejects.toThrow(/Name every database/)
+    await expect(measureCluster(payload, { databases: ['other'] })).rejects.toThrow(/include the current one/)
+    const before = await measureCluster(payload, { databases: [dbName] })
     expect(Object.keys(before.byDatabase)).toEqual([dbName])
     const report = await runSeed(payload, options, { seed: 'size-1', collections: ['users', 'groups'] })
-    const after = await measureCluster(payload)
+    const after = await measureCluster(payload, { databases: [dbName] })
     expect(after.usedBytes).toBeGreaterThan(before.usedBytes)
     expect(after.byDatabase[dbName]!.indexBytes).toBeGreaterThan(0)
     await removeSeed(payload, options, { batch: report.batch })
-    // A database that doesn't exist has no size to report; a bad name is an error, never 0.
+    // A mistyped or missing database is an error, never 0.
+    await expect(measureCluster(payload, { databases: [dbName, `${dbName}_typo`] })).rejects.toThrow(/no collections/)
     await expect(measureCluster(payload, { databases: [dbName, 'bad/name'] })).rejects.toThrow()
   })
 })

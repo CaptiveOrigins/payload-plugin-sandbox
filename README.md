@@ -56,7 +56,7 @@ Globals are planned too (`globals`: existing or skipped, with a reason; the seed
 
 Small database tiers have hard limits, and a seed that overshoots can stop the site writing. Seed measures and plans before it loads:
 
-- `measureCluster(payload, { databases })` measures the way MongoDB Atlas enforces its free-tier limit: uncompressed data plus indexes, summed over the databases you name (name every one on the cluster). A database it can't measure is an error, never 0.
+- `measureCluster(payload, { databases })` measures the way MongoDB Atlas enforces its free-tier limit: uncompressed data plus indexes, summed over the databases you name. The list is required and must name every database on the cluster, the current one included. A database it can't measure, or one with no collections (usually a typo), is an error, never 0.
 - `planCounts({ rules, bytesPerRecord, usedBytes, limitBytes, targetShare })` turns per-kind ceilings and minimums into counts that fill the cluster up to `targetShare` (default 80%). Kinds marked `bulk` shrink first, in proportion; the others shrink only after every bulk kind is at its minimum. If the minimums don't fit, it refuses and nothing loads. It never projects above `hardCap` (default 95%).
 - `calibrate({ bytesPerRecord, counts, growthBytes })` turns a measured load (`measureCluster` before and after) into an `indirectFactor`, so versions, audit entries and other records your hooks write count too.
 - `sizeStatus(usedBytes, limitBytes)` is for a daily check: ok, warn at 90%, alert at 96%.
