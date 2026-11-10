@@ -532,3 +532,20 @@ describe('counts in recipes', () => {
     await removeSeed(payload, options, { batch: report.batch })
   })
 })
+
+describe('bulk removal', () => {
+  it('removes a named collection in one go, only this batch’s marked records, skipping its delete hooks', async () => {
+    const bulk: SeedOptions = { ...options, bulkRemove: ['ghosts'] }
+    const keep = await runSeed(payload, options, { seed: 'bulk-keep', collections: ['ghosts'] })
+    const report = await runSeed(payload, bulk, { seed: 'bulk-1', collections: ['ghosts'], counts: { ghosts: 30 } })
+    const real = await payload.create({ collection: 'ghosts', data: { title: 'A real ghost' } })
+    // One at a time, these can't be removed (their delete hook always refuses); in bulk they go.
+    const result = await removeSeed(payload, bulk, { batch: report.batch })
+    expect(result.removed).toBe(30)
+    expect((await payload.count({ collection: 'ghosts', where: { sandboxBatch: { equals: report.batch } } as never })).totalDocs).toBe(0)
+    // The other batch and the real record stay.
+    expect((await payload.count({ collection: 'ghosts', where: { sandboxBatch: { equals: keep.batch } } as never })).totalDocs).toBeGreaterThan(0)
+    expect((await payload.findByID({ collection: 'ghosts', id: real.id, depth: 0 })).id).toBe(real.id)
+    await payload.db.deleteMany({ collection: 'ghosts', where: { id: { exists: true } } as never })
+  })
+})

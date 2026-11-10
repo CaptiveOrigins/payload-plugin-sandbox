@@ -158,6 +158,13 @@ export type SeedOptions = {
   coveragePlan?: import('./coveragePlan.js').CoveragePlan
   /** Run the realism audit after each run (default true). It only reads. */
   audit?: boolean
+  /**
+   * Collections removed in bulk (one deleteMany per collection), skipping their delete hooks: only for
+   * collections whose hooks don't need to run on delete (no counts to update, no files to remove).
+   * Still only records with the seed's marker and batch, and never a collection named in `keep`.
+   * Removing tens of thousands of records one at a time through Payload can take an hour.
+   */
+  bulkRemove?: string[]
   /** Slugs of the plugin's collections. */
   slugs?: { batches?: string; records?: string; marker?: string; settings?: string }
 }
