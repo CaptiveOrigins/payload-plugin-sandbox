@@ -15,7 +15,13 @@ import type { SeedOptions } from './types.js'
  */
 export const removeSeed = (payload: Payload, options: SeedOptions, input: { batch?: string; collection?: string } = {}): Promise<Removed> => (options.around ?? ((task) => task()))(() => remove(payload, options, input))
 
-type Removed = { removed: number; failed: { collection: string; id: string; message: string }[]; kept: { collection: string; id: string }[] }
+type Removed = {
+  removed: number
+  failed: { collection: string; id: string; message: string }[]
+  kept: { collection: string; id: string }[]
+  /** Register rows pointing at a document without the seed's marker: never deleted, rows left for a person to look at. */
+  notSeeded: { collection: string; id: string }[]
+}
 
 async function remove(payload: Payload, options: SeedOptions, { batch, collection }: { batch?: string; collection?: string }): Promise<Removed> {
   const slugs = defaultSlugs(options)
@@ -24,6 +30,7 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
   let removed = 0
   const failed: { collection: string; id: string; message: string }[] = []
   const kept: { collection: string; id: string }[] = []
+  const notSeeded: { collection: string; id: string }[] = []
   // Documents the site keeps whatever happens (`keep`): never deleted, even when marked; reported as kept.
   const keepCache = new Map<string, Set<string>>()
   const isKept = async (slug: string, id: string) => {
@@ -36,6 +43,25 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
   }
   for (const r of records) {
     if (await isKept(r.collection, r.docId)) continue
+    // The register is the seed's own, but a stale or bad row must never delete a real document:
+    // only a document that still carries the seed's marker goes. One that's gone drops its row.
+    // draft: a seeded document that only exists as a draft is still seeded. A read that fails is not
+    // "gone": the row stays (reported as failed), so the document never loses its link to the batch.
+    let doc: Record<string, unknown> | null
+    try {
+      doc = ((await payload.find({ collection: r.collection as never, where: { id: { equals: r.docId } } as never, limit: 1, depth: 0, overrideAccess: true, draft: true, select: { [MARKER]: true } as never })).docs[0] as unknown as Record<string, unknown> | undefined) ?? null
+    } catch (e) {
+      failed.push({ collection: r.collection, id: r.docId, message: `couldn’t check it’s seeded: ${(e as Error).message ?? String(e)}` })
+      continue
+    }
+    if (doc && doc[MARKER] !== true) {
+      notSeeded.push({ collection: r.collection, id: r.docId })
+      continue
+    }
+    if (!doc) {
+      await payload.delete({ collection: slugs.records as never, id: r.id, overrideAccess: true })
+      continue
+    }
     try {
       await payload.delete({ collection: r.collection as never, id: r.docId, overrideAccess: true, context: { sandbox: { removing: true }, disableRevalidate: true } })
       removed++
@@ -87,10 +113,10 @@ async function remove(payload: Payload, options: SeedOptions, { batch, collectio
     const batches = (await payload.find({ collection: slugs.batches as never, where: (batch ? { id: { equals: batch } } : {}) as never, pagination: false, depth: 0, overrideAccess: true })).docs as unknown as { id: string }[]
     for (const b of batches) {
       const left = await payload.count({ collection: slugs.records as never, where: { batch: { equals: b.id } } as never, overrideAccess: true })
-      if (!left.totalDocs && !failed.length && !kept.length) await payload.delete({ collection: slugs.batches as never, id: b.id, overrideAccess: true })
+      if (!left.totalDocs && !failed.length && !kept.length && !notSeeded.length) await payload.delete({ collection: slugs.batches as never, id: b.id, overrideAccess: true })
     }
   }
-  return { removed, failed, kept }
+  return { removed, failed, kept, notSeeded }
 }
 
 /**

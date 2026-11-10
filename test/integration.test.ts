@@ -261,6 +261,42 @@ describe('the batch id on the marker (0.3.0)', () => {
     for (const c of ['sandbox-records', 'sandbox-batches'] as const) expect((await payload.count({ collection: c as never })).totalDocs).toBe(0)
   })
 
+  it('never deletes a document a register row points at unless it still carries the seed marker', async () => {
+    const legacy: SeedOptions = { ...options, register: 'records' }
+    const report = await runSeed(payload, legacy, { seed: 'records-2', collections: ['users'] })
+    // A bad register row pointing at a real, unmarked account; and one pointing at a document that's gone.
+    const real = await payload.create({ collection: 'users', data: { email: `real-reg-${Date.now()}@example.com`, password: 'a-real-password-1' } })
+    await payload.create({ collection: 'sandbox-records' as never, data: { batch: report.batch, collection: 'users', docId: String(real.id), order: 9999 } as never, overrideAccess: true })
+    await payload.create({ collection: 'sandbox-records' as never, data: { batch: report.batch, collection: 'users', docId: '000000000000000000000000', order: 9998 } as never, overrideAccess: true })
+    const result = await removeSeed(payload, legacy, { batch: report.batch })
+    expect(result.failed).toEqual([])
+    expect(result.notSeeded).toEqual([{ collection: 'users', id: String(real.id) }])
+    expect((await payload.findByID({ collection: 'users', id: real.id, depth: 0 })).id).toBe(real.id)
+    // The bad row stays for a person to look at; the gone one was dropped; the batch is kept while a row is left.
+    expect((await payload.count({ collection: 'sandbox-records' as never, where: { batch: { equals: report.batch } } as never })).totalDocs).toBe(1)
+    expect((await payload.count({ collection: 'sandbox-batches' as never, where: { id: { equals: report.batch } } as never })).totalDocs).toBe(1)
+    expect((await payload.count({ collection: 'users', where: { sandboxBatch: { equals: report.batch } } as never })).totalDocs).toBe(0)
+    // A row whose document can't be read (here, a collection that doesn't exist) is kept and reported, never dropped.
+    await payload.create({ collection: 'sandbox-records' as never, data: { batch: report.batch, collection: 'no-such-collection', docId: '000000000000000000000001', order: 9997 } as never, overrideAccess: true })
+    const again = await removeSeed(payload, legacy, { batch: report.batch })
+    expect(again.failed.map((f) => f.collection)).toEqual(['no-such-collection'])
+    expect((await payload.count({ collection: 'sandbox-records' as never, where: { batch: { equals: report.batch } } as never })).totalDocs).toBe(2)
+    await payload.delete({ collection: 'sandbox-records' as never, where: { batch: { equals: report.batch } } as never, overrideAccess: true })
+    await payload.delete({ collection: 'sandbox-batches' as never, id: report.batch, overrideAccess: true })
+    await payload.delete({ collection: 'users', id: real.id })
+  })
+
+  it('counts draft-only seeded documents as seeded when removing through the register', async () => {
+    const legacy: SeedOptions = { ...options, register: 'records' }
+    const report = await runSeed(payload, legacy, { seed: 'records-3', collections: ['animals'] })
+    const drafts = (await payload.count({ collection: 'animals', where: { and: [{ sandbox: { equals: true } }, { _status: { equals: 'draft' } }] }, draft: true } as never)).totalDocs
+    expect(drafts).toBeGreaterThan(0)
+    const result = await removeSeed(payload, legacy, { batch: report.batch })
+    expect(result.notSeeded).toEqual([])
+    expect(result.failed).toEqual([])
+    expect((await payload.count({ collection: 'animals', where: { sandbox: { equals: true } }, draft: true } as never)).totalDocs).toBe(0)
+  })
+
   it('adopts a document a recipe made itself, so removal takes it too', async () => {
     const adopting: SeedOptions = {
       ...options,
