@@ -437,6 +437,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
       const ids = pools.get(d.from) ?? []
       const targets = pools.get(d.to) ?? []
       if (!ids.length || !targets.length || d.path.includes('[]') || options.recipes?.[d.from]?.noLinks?.includes(d.path)) continue
+      if (models.find((m) => m.slug === d.from)?.fields.find((f) => f.path === d.path)?.readOnly) continue // the recipe sets it
       const hasMany = Boolean(models.find((m) => m.slug === d.from)?.fields.find((f) => f.path === d.path)?.hasMany)
       const jobs: (() => Promise<void>)[] = []
       for (let i = 0; i < ids.length; i++) {

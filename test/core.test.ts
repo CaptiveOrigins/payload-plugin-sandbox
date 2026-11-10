@@ -173,3 +173,20 @@ describe('retrying clashing writes', () => {
     expect(n).toBe(1)
   })
 })
+
+describe('read-only links', () => {
+  it('order creation but are never filled or planned', async () => {
+    const accounts: CollectionConfig = { slug: 'accounts', fields: [{ name: 'name', type: 'text' }] }
+    const memberships: CollectionConfig = { slug: 'memberships', fields: [{ name: 'user', type: 'relationship', relationTo: 'accounts', required: true, admin: { readOnly: true } }, { name: 'status', type: 'select', options: ['active', 'canceled'], admin: { readOnly: true } }, { name: 'note', type: 'text' }] }
+    const models = [memberships, accounts].map(readCollection)
+    expect(creationOrder(models).order).toEqual(['accounts', 'memberships'])
+    const fields = readCollection(memberships).fields.map((f) => f.path)
+    expect(fields).toEqual(['user', 'note'])
+    const doc = buildDoc(readCollection(memberships), {}, { rnd: random('r'), serial: () => 1, emailDomain: 'example.invalid', pick: () => 'a1', pickMany: () => ['a1'], defer: () => false })
+    expect(doc).not.toHaveProperty('user')
+    const { draftCoveragePlan, checkCoveragePlan } = await import('../src/index.js')
+    const plan = draftCoveragePlan({ collections: [accounts, memberships] })
+    expect(Object.keys((plan.collections.memberships as { fields: object }).fields)).toEqual(['note'])
+    expect(checkCoveragePlan({ collections: [accounts, memberships] }, plan).ok).toBe(true)
+  })
+})

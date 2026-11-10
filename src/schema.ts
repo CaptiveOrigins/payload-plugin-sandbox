@@ -18,6 +18,8 @@ export type FieldModel = {
   maxLength?: number
   minRows?: number
   maxRows?: number
+  /** Shown read-only in the admin: never filled by the seed (kept only for links, to order creation). */
+  readOnly?: boolean
   /** Nested fields of groups, arrays and blocks. */
   fields?: FieldModel[]
   blocks?: { slug: string; fields: FieldModel[] }[]
@@ -51,7 +53,10 @@ export function readFields(fields: readonly Field[], prefix = ''): FieldModel[] 
     }
     if (!('name' in f) || !f.name || f.type === 'ui' || f.type === 'join') continue
     const any = f as Field & Record<string, unknown>
-    if (SKIP_NAMES.has(f.name) || any.virtual || (any.admin as { readOnly?: boolean } | undefined)?.readOnly) continue
+    const readOnly = Boolean((any.admin as { readOnly?: boolean } | undefined)?.readOnly)
+    // Read-only fields aren't filled, but a read-only link still says what must exist first
+    // (a membership's account), so those are kept, marked, for the creation order.
+    if (SKIP_NAMES.has(f.name) || any.virtual || (readOnly && f.type !== 'relationship' && f.type !== 'upload')) continue
     if (f.type === 'group') {
       out.push(group(f.name, f.fields, prefix))
       continue
@@ -64,6 +69,7 @@ export function readFields(fields: readonly Field[], prefix = ''): FieldModel[] 
       hasMany: Boolean(any.hasMany),
       localized: Boolean(any.localized),
       unique: Boolean(any.unique),
+      ...(readOnly ? { readOnly: true } : {}),
     }
     if (f.type === 'select' || f.type === 'radio') base.options = optionValues(any.options)
     if (f.type === 'relationship' || f.type === 'upload') base.relationTo = any.relationTo as string | string[]
