@@ -12,7 +12,7 @@
   - `checkCoveragePlan`, `assertCoveragePlan`, `draftCoveragePlan` and `selectMinimums`.
   - It covers collections, fields, select values, relationships and globals.
   - It fails on missing reasons (and "TODO" placeholders) and on minimums a plan can never reach.
-- **Removed:** the `sandboxPlugin`, `runSandbox`, `removeSandbox`, `SandboxRefused`, `SandboxOptions` and `SandboxPlan` aliases, deprecated in 0.3.0. Use the `seed` names.
+- **Removed:** the `sandboxPlugin`, `runSandbox`, `removeSandbox`, `SandboxRefused`, `SandboxOptions` and `SandboxPlan` aliases, and the component aliases `SandboxPanel` (`/client`), `SandboxView` and `SandboxNavLink` (`/rsc`), all deprecated in 0.3.0. Use the `Seed` names.
 
 **Upgrading:** build the new `sandboxBatch` index wherever your database doesn't build indexes automatically (for example a script you run after migrations). Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker).
 

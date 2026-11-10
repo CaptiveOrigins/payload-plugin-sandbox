@@ -102,5 +102,12 @@ describe('renamed from payload-plugin-sandbox (0.3.0)', () => {
     const m = (await import('../src/index.js')) as Record<string, unknown>
     for (const old of ['sandboxPlugin', 'runSandbox', 'removeSandbox', 'SandboxRefused']) expect(m[old]).toBeUndefined()
     expect(typeof m.seedPlugin).toBe('function')
+    // The component entry points load the admin UI (CSS and all), so check what they export as written.
+    const { readFileSync } = await import('node:fs')
+    const client = readFileSync(new URL('../src/client/index.ts', import.meta.url), 'utf8')
+    const rsc = readFileSync(new URL('../src/rsc/index.ts', import.meta.url), 'utf8')
+    for (const text of [client, rsc]) expect(text).not.toMatch(/Sandbox/)
+    expect(client).toMatch(/export \{ SeedPanel \}/)
+    expect(rsc).toMatch(/export \{ SeedNavLink, SeedView \}/)
   })
 })
