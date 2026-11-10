@@ -64,6 +64,15 @@ Three checks, each failing closed. A refusal says which one failed.
 Give `assertQuiet` (a function that throws while email, webhooks or payments are on) and seeding also refuses while it throws. Switching effects off in `around` isn't proof they're off.
 - Every generated document carries a read-only `sandbox` marker that only Seed can set. Where seeding is not allowed, start-up logs an error if any marked document exists (for example after copying a test database).
 
+## Size: fill to a share of the cluster
+
+Small database tiers have hard limits, and a seed that overshoots can stop the site writing. Seed measures and plans before it loads:
+
+- `measureCluster(payload, { databases })` measures the way MongoDB Atlas enforces its free-tier limit: uncompressed data plus indexes, summed over the databases you name. The list is required and must name every database on the cluster, the current one included. A database it can't measure, or one with no collections (usually a typo), is an error, never 0.
+- `planCounts({ rules, bytesPerRecord, usedBytes, limitBytes, targetShare })` turns per-kind ceilings and minimums into counts that fill the cluster up to `targetShare` (default 80%). Kinds marked `bulk` shrink first, in proportion; the others shrink only after every bulk kind is at its minimum. If the minimums don't fit, it refuses and nothing loads. It never projects above `hardCap` (default 95%).
+- `calibrate({ bytesPerRecord, counts, growthBytes })` turns a measured load (`measureCluster` before and after) into an `indirectFactor`, so versions, audit entries and other records your hooks write count too.
+- `sizeStatus(usedBytes, limitBytes)` is for a daily check: ok, warn at 90%, alert at 96%.
+
 ## Where a batch is remembered
 
 Since 0.4.0 each seeded document carries its batch id beside the marker (`sandboxBatch`), and removal finds documents by it: collections in reverse dependency order, newest first within one. There's no register document per record, which matters at scale (about 0.4 KB saved per record, so tens of MB on a big world). Set `register: 'records'` to keep the old register. Batches made either way can still be removed. A recipe that creates documents itself adopts them into the batch with `ctx.track(collection, id)`. Removal deletes one document at a time with your hooks on, so a big world takes a while to remove. Name what a removal must never delete with `keep` (per collection, a `where`, for example administrators): matches are skipped even when marked, and listed as kept.

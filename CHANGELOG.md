@@ -18,6 +18,7 @@
   - a test-database marker for this database name and host, written once by a person with `markTestDatabase()`. It lives in a new collection, `seed-marker`, that the API can't write.
   - `assertQuiet`: optional; seeding refuses while it throws.
   - `assertAllowed` and `isAllowed` are now async. `assertConfigAllowed` keeps the first two checks, synchronous.
+- **Auto-sizing:** `measureCluster`, `planCounts`, `calibrate` and `sizeStatus` fill a cluster up to a share of its limit, shrinking bulk kinds first and refusing when the minimums don't fit.
 - **Removed:** the `sandboxPlugin`, `runSandbox`, `removeSandbox`, `SandboxRefused`, `SandboxOptions` and `SandboxPlan` aliases, and the component aliases `SandboxPanel` (`/client`), `SandboxView` and `SandboxNavLink` (`/rsc`), all deprecated in 0.3.0. Use the `Seed` names.
 
 **Upgrading:** mark each test database once with `markTestDatabase()` before seeding it again. Await `assertAllowed` and `isAllowed`. Build the new `sandboxBatch` index wherever your database doesn't build indexes automatically (for example a script you run after migrations). Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker).

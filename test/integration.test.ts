@@ -2,7 +2,7 @@ import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { buildConfig, getPayload, type CollectionConfig, type Payload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { markTestDatabase, removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
+import { markTestDatabase, measureCluster, removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
 
 /** A real Payload on a throwaway MongoDB database (MONGODB_URL, default the local test container). */
 const BASE = process.env.MONGODB_URL ?? 'mongodb://127.0.0.1:27018/?directConnection=true'
@@ -299,5 +299,22 @@ describe('the batch id on the marker (0.4.0)', () => {
     expect((await payload.findByID({ collection: 'users', id: keeper.id, depth: 0 })).id).toBe(keeper.id)
     // A batch with kept documents isn't forgotten.
     expect((await payload.count({ collection: 'sandbox-batches' as never, where: { id: { equals: report.batch } } as never })).totalDocs).toBe(1)
+  })
+})
+
+describe('measuring the cluster', () => {
+  it('measures documents plus indexes, grows with a load, and refuses a database it can’t measure', async () => {
+    await expect(measureCluster(payload, { databases: [] })).rejects.toThrow(/Name every database/)
+    await expect(measureCluster(payload, { databases: ['other'] })).rejects.toThrow(/include the current one/)
+    const before = await measureCluster(payload, { databases: [dbName] })
+    expect(Object.keys(before.byDatabase)).toEqual([dbName])
+    const report = await runSeed(payload, options, { seed: 'size-1', collections: ['users', 'groups'] })
+    const after = await measureCluster(payload, { databases: [dbName] })
+    expect(after.usedBytes).toBeGreaterThan(before.usedBytes)
+    expect(after.byDatabase[dbName]!.indexBytes).toBeGreaterThan(0)
+    await removeSeed(payload, options, { batch: report.batch })
+    // A mistyped or missing database is an error, never 0.
+    await expect(measureCluster(payload, { databases: [dbName, `${dbName}_typo`] })).rejects.toThrow(/no collections/)
+    await expect(measureCluster(payload, { databases: [dbName, 'bad/name'] })).rejects.toThrow()
   })
 })
