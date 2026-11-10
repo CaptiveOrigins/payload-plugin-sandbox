@@ -27,7 +27,8 @@ Rules live in a global, `seed-settings`, shown in the admin's Seed area to whoev
 type SeedSettings = {
   size: 'small' | 'big' | 'custom'
   seed: string                         // same seed, same world
-  counts: Record<string, number>       // per collection, for custom (big/small come from defaults)
+  counts: Record<string, { ceiling: number; minimum: number; bulk?: boolean }>  // auto-sized between these
+  targetShare: number                  // fill the cluster up to this share of its limit (default 0.8)
   distributions: Record<string, Distribution>  // e.g. animals per keeper: long tail, median 2
   personas: PersonaRule[]              // types of account, their share, their stories
   languages: { code: string; share: number }[]
@@ -136,6 +137,11 @@ Each image field points at one shared copy per kind (silhouettes, a small set of
 - **Big** runs on a test database on demand or on a schedule. It writes through the Local API in chunks with progress, and can be resumed after an interruption (the register knows what exists).
 - **Size is measured the way the database host enforces it.** On MongoDB Atlas's free tier that's uncompressed data plus indexes, summed over every database on the cluster. Before every run the plugin projects the whole cluster's size after the run, and refuses above the site's cap with a clear report. The projection comes from a measured load (`dbStats` before and after), scaled. That way, records the site's own hooks create (audit entries, versions, history, search records) are counted, not just the records the seed meant to write. A scheduled run that refuses alerts and never half-loads.
 - **The owner's limits for the reference site (2026-11-09):** aim for 85–90% of the cluster after a load, with up to 93% accepted ("I'm fine with 93% if it means a better testing UX and it doesn't cause problems"). A hard cap at 95% projected. A daily size check that alerts at 96% and trims in a set order: old test-only audit entries and notifications first, then the seed's largest optional sets.
+- **Auto-sizing [decided 2026-11-09; the owner: "Auto-size to 80% (Recommended)"]:**
+  - Each run measures the cluster first and fills only up to a target share of the enforced limit (default 80%, a setting).
+  - The configured counts are a ceiling, each type with a minimum. Types marked bulk shrink first, in proportion. Headline types shrink only after the bulk types reach their minimums, and never below a few examples of every persona kind and relationship pattern.
+  - If there isn't room for the minimums, the run refuses and alerts.
+  - Tests: clusters at 60%, 75% and 79% before seeding, minimums held, and the refusal.
 - **A smaller register [decided 2026-11-09]:** store the batch id in each record's marker instead of one register document per record. At tens of thousands of records the register is a noticeable share of the database; the marker already exists and is indexed.
 - **Snapshots:** after a full generation, the site can export the generated data (`npx seed snapshot`), and later load it again in minutes without Claude (`npx seed restore`). Snapshots stay private to the site; the plugin never uploads them anywhere.
 
