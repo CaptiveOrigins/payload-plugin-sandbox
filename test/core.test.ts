@@ -148,3 +148,23 @@ describe('removal order', () => {
     expect(removalOrder([['x', 'a']], ['a'], ['a'])).toEqual(['a'])
   })
 })
+
+describe('retrying clashing writes', () => {
+  it('retries write conflicts a few times, and fails anything else at once', async () => {
+    const { isTransient, retryTransient } = await import('../src/index.js')
+    const noWait = async () => {}
+    expect(isTransient(new Error('Caused by :: Write conflict during plan execution and yielding is disabled.'))).toBe(true)
+    expect(isTransient({ errorLabels: ['TransientTransactionError'] })).toBe(true)
+    expect(isTransient({ message: 'wrapped', cause: { code: 112 } })).toBe(true)
+    expect(isTransient(new Error('The following field is invalid: Group'))).toBe(false)
+    let n = 0
+    expect(await retryTransient(async () => (++n < 3 ? Promise.reject(new Error('Write conflict')) : 'ok'), 4, noWait)).toBe('ok')
+    expect(n).toBe(3)
+    n = 0
+    await expect(retryTransient(async () => { n++; throw new Error('Write conflict') }, 4, noWait)).rejects.toThrow(/Write conflict/)
+    expect(n).toBe(4)
+    n = 0
+    await expect(retryTransient(async () => { n++; throw new Error('invalid') }, 4, noWait)).rejects.toThrow('invalid')
+    expect(n).toBe(1)
+  })
+})

@@ -89,6 +89,26 @@ export async function estimateRun(payload: Payload, options: SeedOptions, input:
 
 const PROGRESS_EVERY = 500
 
+/**
+ * A write that clashed with another one at the same moment (two weights updating one animal) is
+ * retried a few times, a little later each time. Anything else fails at once and is reported.
+ */
+export function isTransient(e: unknown): boolean {
+  const err = e as { message?: string; errorLabels?: string[]; errorLabelSet?: Set<string>; code?: number; cause?: unknown }
+  const labels = [...(err?.errorLabels ?? []), ...(err?.errorLabelSet ? [...err.errorLabelSet] : [])]
+  return labels.includes('TransientTransactionError') || err?.code === 112 || /write conflict/i.test(err?.message ?? '') || (err?.cause !== undefined && err.cause !== e && isTransient(err.cause))
+}
+export async function retryTransient<T>(task: () => Promise<T>, tries = 4, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await task()
+    } catch (e) {
+      if (attempt >= tries || !isTransient(e)) throw e
+      await wait(25 * 2 ** attempt + Math.floor(Math.random() * 25))
+    }
+  }
+}
+
 /** A big seed's text could cost more than the settings' "ask above" amount: the run needs `confirmSpendUSD` of at least `worstUSD`. */
 export class SpendNeedsConfirmation extends SeedRefused {
   constructor(
@@ -336,7 +356,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
       }
     }
     try {
-      const doc = await payload.create({ collection: collection as never, data: body as never, overrideAccess: true, context, ...(opts.draft ? { draft: true } : {}), ...(file ? { file } : {}) })
+      const doc = await retryTransient(() => payload.create({ collection: collection as never, data: body as never, overrideAccess: true, context, ...(opts.draft ? { draft: true } : {}), ...(file ? { file } : {}) }))
       await register(collection, String(doc.id))
       return String(doc.id)
     } catch (e) {
@@ -346,7 +366,7 @@ async function run(payload: Payload, options: SeedOptions, input: RunInput): Pro
   }
   const update = async (collection: string, id: string, data: Record<string, unknown>) => {
     try {
-      await payload.update({ collection: collection as never, id, data: data as never, overrideAccess: true, context })
+      await retryTransient(() => payload.update({ collection: collection as never, id, data: data as never, overrideAccess: true, context }))
     } catch (e) {
       failures.push({ collection, message: `update: ${message(e)}` })
     }
