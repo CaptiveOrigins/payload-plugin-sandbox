@@ -98,11 +98,16 @@ describe('guard', () => {
 })
 
 describe('renamed from payload-plugin-sandbox (0.3.0)', () => {
-  it('keeps the old export names working until 0.4.0', async () => {
-    const m = await import('../src/index.js')
-    expect(m.sandboxPlugin).toBe(m.seedPlugin)
-    expect(m.runSandbox).toBe(m.runSeed)
-    expect(m.removeSandbox).toBe(m.removeSeed)
-    expect(m.SandboxRefused).toBe(m.SeedRefused)
+  it('drops the old export names in 0.4.0, as 0.3.0 announced', async () => {
+    const m = (await import('../src/index.js')) as Record<string, unknown>
+    for (const old of ['sandboxPlugin', 'runSandbox', 'removeSandbox', 'SandboxRefused']) expect(m[old]).toBeUndefined()
+    expect(typeof m.seedPlugin).toBe('function')
+    // The component entry points load the admin UI (CSS and all), so check what they export as written.
+    const { readFileSync } = await import('node:fs')
+    const client = readFileSync(new URL('../src/client/index.ts', import.meta.url), 'utf8')
+    const rsc = readFileSync(new URL('../src/rsc/index.ts', import.meta.url), 'utf8')
+    for (const text of [client, rsc]) expect(text).not.toMatch(/Sandbox/)
+    expect(client).toMatch(/export \{ SeedPanel \}/)
+    expect(rsc).toMatch(/export \{ SeedNavLink, SeedView \}/)
   })
 })
