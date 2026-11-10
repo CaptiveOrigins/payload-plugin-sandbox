@@ -1,7 +1,7 @@
 import type { CollectionConfig, Config, Payload } from 'payload'
 import { describe, expect, it } from 'vitest'
 
-import { assertAllowed, buildDoc, creationOrder, databaseName, dimensionsFor, pairCoverage, pairwise, random, readCollection, seedPlugin, withDependencies } from '../src/index.js'
+import { assertAllowed, assertConfigAllowed, buildDoc, databaseHost, creationOrder, databaseName, dimensionsFor, pairCoverage, pairwise, random, readCollection, seedPlugin, withDependencies } from '../src/index.js'
 
 const animals: CollectionConfig = {
   slug: 'animals',
@@ -80,18 +80,45 @@ describe('coverage', () => {
 
 describe('guard', () => {
   const payloadWith = (url: string) => ({ db: { url } }) as unknown as Payload
-  it('refuses without allow(), and on databases that look like production', () => {
-    expect(() => assertAllowed(payloadWith('mongodb://h/test'), {})).toThrow(/not allowed/)
-    expect(() => assertAllowed(payloadWith('mongodb://h/test'), { allow: () => true })).not.toThrow()
-    expect(() => assertAllowed(payloadWith('mongodb+srv://u:p@h/prod?x=1'), { allow: () => true })).toThrow(/production/)
-    expect(() => assertAllowed(payloadWith('mongodb+srv://u:p@h/myapp-production'), { allow: () => true, allowDatabases: ['myapp-production'] })).not.toThrow()
+  it('refuses without allow(), on databases that look like production, and when the name can’t be read', () => {
+    expect(() => assertConfigAllowed(payloadWith('mongodb://h/test'), {})).toThrow(/not allowed/)
+    expect(() => assertConfigAllowed(payloadWith('mongodb://h/test'), { allow: () => true })).not.toThrow()
+    expect(() => assertConfigAllowed(payloadWith('mongodb+srv://u:p@h/prod?x=1'), { allow: () => true })).toThrow(/production/)
+    expect(() => assertConfigAllowed(payloadWith('mongodb+srv://u:p@h/myapp-production'), { allow: () => true, allowDatabases: ['myapp-production'] })).not.toThrow()
+    expect(() => assertConfigAllowed(payloadWith('mongodb://h/'), { allow: () => true })).toThrow(/can’t be read/)
+    expect(() => assertConfigAllowed({ db: {} } as unknown as Payload, { allow: () => true })).toThrow(/can’t be read/)
     expect(databaseName(payloadWith('postgres://u:p@h:5432/shop_prod'))).toBe('shop_prod')
+  })
+
+  it('reads the host without credentials, and the same for every host order', () => {
+    expect(databaseHost(payloadWith('mongodb+srv://user:secret@Cluster0.ABC.example/test?retryWrites=true'))).toBe('cluster0.abc.example')
+    expect(databaseHost(payloadWith('mongodb://u:p@b:27017,a:27017/test?replicaSet=rs0'))).toBe('a:27017,b:27017')
+    expect(databaseHost(payloadWith('mongodb://a:27017,b:27017/test'))).toBe('a:27017,b:27017')
+    expect(databaseHost({ db: {} } as unknown as Payload)).toBeNull()
+  })
+
+  it('refuses before reading the database when the first checks fail', async () => {
+    let read = false
+    const payload = { db: { url: 'mongodb://h/prod' }, find: async () => { read = true; return { docs: [] } } } as unknown as Payload
+    await expect(assertAllowed(payload, { allow: () => true })).rejects.toThrow(/production/)
+    expect(read).toBe(false)
+  })
+
+  it('refuses when the marker can’t be read, is missing, or belongs to another database or host', async () => {
+    const withMarkers = (url: string, find: () => Promise<unknown>) => ({ db: { url }, find }) as unknown as Payload
+    const ok = { allow: () => true }
+    await expect(assertAllowed(withMarkers('mongodb://h/test', async () => { throw new Error('boom') }), ok)).rejects.toThrow(/can’t be read/)
+    await expect(assertAllowed(withMarkers('mongodb://h/test', async () => ({ docs: [] })), ok)).rejects.toThrow(/hasn’t been marked/)
+    await expect(assertAllowed(withMarkers('mongodb://h/test', async () => ({ docs: [{ database: 'test', host: 'other' }] })), ok)).rejects.toThrow(/another database or host/)
+    await expect(assertAllowed(withMarkers('mongodb://h/test', async () => ({ docs: [{ database: 'dev', host: 'h' }] })), ok)).rejects.toThrow(/another database or host/)
+    await expect(assertAllowed(withMarkers('mongodb://h/test', async () => ({ docs: [{ database: 'test', host: 'h' }] })), ok)).resolves.toBeUndefined()
+    await expect(assertAllowed(withMarkers('mongodb://h/test', async () => ({ docs: [{ database: 'test', host: 'h' }] })), { ...ok, assertQuiet: () => { throw new Error('email is on') } })).rejects.toThrow(/outgoing effects aren’t off here \(email is on\)/)
   })
 
   it('adds the marker to every collection and hides its admin where not allowed', async () => {
     const config = (await seedPlugin({ allow: () => false })({ collections: [animals, groups, users] } as never)) as Config
     const slugs = config.collections!.map((c) => c.slug)
-    expect(slugs).toEqual(['animals', 'groups', 'users', 'sandbox-batches', 'sandbox-records'])
+    expect(slugs).toEqual(['animals', 'groups', 'users', 'sandbox-batches', 'sandbox-records', 'seed-marker'])
     for (const c of config.collections!.slice(0, 3)) expect(c.fields.some((f) => 'name' in f && f.name === 'sandbox')).toBe(true)
     expect(config.collections!.find((c) => c.slug === 'sandbox-batches')!.admin!.hidden).toBe(true)
   })

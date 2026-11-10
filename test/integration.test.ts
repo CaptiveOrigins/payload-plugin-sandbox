@@ -2,7 +2,7 @@ import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { buildConfig, getPayload, type CollectionConfig, type Payload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
+import { markTestDatabase, removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
 
 /** A real Payload on a throwaway MongoDB database (MONGODB_URL, default the local test container). */
 const BASE = process.env.MONGODB_URL ?? 'mongodb://127.0.0.1:27018/?directConnection=true'
@@ -49,6 +49,7 @@ beforeAll(async () => {
       upload: {},
     }),
   })
+  await markTestDatabase(payload, options, { confirm: dbName, by: 'integration test' })
 })
 
 afterAll(async () => {
@@ -89,6 +90,44 @@ describe('a real sandbox run', () => {
 
   it('refuses to run where it is not allowed', async () => {
     await expect(runSeed(payload, { ...options, allow: () => false })).rejects.toThrow(/not allowed/)
+  })
+
+  it('marks a test database only when the name is typed, once, and never through the API', async () => {
+    await expect(markTestDatabase(payload, options, { confirm: 'test' })).rejects.toThrow(/type the database name/)
+    await expect(markTestDatabase(payload, { ...options, allow: () => false }, { confirm: dbName })).rejects.toThrow(/not allowed/)
+    expect((await markTestDatabase(payload, options, { confirm: dbName })).created).toBe(false)
+    expect((await payload.count({ collection: 'seed-marker' as never })).totalDocs).toBe(1)
+    await expect(payload.create({ collection: 'seed-marker' as never, data: { database: dbName, host: 'x' } as never, overrideAccess: false })).rejects.toThrow()
+  })
+
+  it('refuses a database whose marker was written on another host (a restored copy)', async () => {
+    const marker = (await payload.find({ collection: 'seed-marker' as never, depth: 0 })).docs[0] as unknown as { id: string; host: string }
+    await payload.update({ collection: 'seed-marker' as never, id: marker.id, data: { host: 'elsewhere.example.net' } as never, overrideAccess: true })
+    try {
+      await expect(runSeed(payload, options, { collections: ['users'] })).rejects.toThrow(/another database or host/)
+    } finally {
+      await payload.update({ collection: 'seed-marker' as never, id: marker.id, data: { host: marker.host } as never, overrideAccess: true })
+    }
+  })
+
+  it('doesn’t report seed data as misplaced on a test database that isn’t marked yet', async () => {
+    const report = await runSeed(payload, options, { seed: 'oninit-1', collections: ['users'] })
+    const errors: string[] = []
+    const logger = { ...payload.logger, error: (m: unknown) => errors.push(String(m)) }
+    const onInit = (seedPlugin(options)({ collections: [users], onInit: undefined } as never) as { onInit: (p: Payload) => Promise<void> }).onInit
+    // Unmarked: the marker can't be found, but the configuration says this is a test database.
+    await onInit({ ...payload, logger, find: async () => ({ docs: [] }), count: payload.count.bind(payload) } as unknown as Payload)
+    expect(errors).toEqual([])
+    // Configuration says production: marked records are reported, and nothing is removed.
+    await onInit({ ...payload, logger, count: payload.count.bind(payload) } as unknown as Payload)
+    await (seedPlugin({ ...options, allow: () => false })({ collections: [users] } as never) as { onInit: (p: Payload) => Promise<void> }).onInit({ ...payload, logger, count: payload.count.bind(payload) } as unknown as Payload)
+    expect(errors.some((e) => /Seed data found in “users”/.test(e))).toBe(true)
+    expect((await payload.count({ collection: 'users', where: { sandboxBatch: { equals: report.batch } } })).totalDocs).toBeGreaterThan(0)
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+
+  it('refuses while outgoing effects are on', async () => {
+    await expect(runSeed(payload, { ...options, assertQuiet: () => { throw new Error('payments are on') } }, { collections: ['users'] })).rejects.toThrow(/payments are on/)
   })
 })
 
