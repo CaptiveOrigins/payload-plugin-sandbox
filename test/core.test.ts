@@ -1,7 +1,7 @@
 import type { CollectionConfig, Config, Payload } from 'payload'
 import { describe, expect, it } from 'vitest'
 
-import { assertAllowed, buildDoc, creationOrder, databaseName, dimensionsFor, pairCoverage, pairwise, random, readCollection, sandboxPlugin, withDependencies } from '../src/index.js'
+import { assertAllowed, buildDoc, creationOrder, databaseName, dimensionsFor, pairCoverage, pairwise, random, readCollection, seedPlugin, withDependencies } from '../src/index.js'
 
 const animals: CollectionConfig = {
   slug: 'animals',
@@ -89,10 +89,20 @@ describe('guard', () => {
   })
 
   it('adds the marker to every collection and hides its admin where not allowed', async () => {
-    const config = (await sandboxPlugin({ allow: () => false })({ collections: [animals, groups, users] } as never)) as Config
+    const config = (await seedPlugin({ allow: () => false })({ collections: [animals, groups, users] } as never)) as Config
     const slugs = config.collections!.map((c) => c.slug)
     expect(slugs).toEqual(['animals', 'groups', 'users', 'sandbox-batches', 'sandbox-records'])
     for (const c of config.collections!.slice(0, 3)) expect(c.fields.some((f) => 'name' in f && f.name === 'sandbox')).toBe(true)
     expect(config.collections!.find((c) => c.slug === 'sandbox-batches')!.admin!.hidden).toBe(true)
+  })
+})
+
+describe('renamed from payload-plugin-sandbox (0.3.0)', () => {
+  it('keeps the old export names working until 0.4.0', async () => {
+    const m = await import('../src/index.js')
+    expect(m.sandboxPlugin).toBe(m.seedPlugin)
+    expect(m.runSandbox).toBe(m.runSeed)
+    expect(m.removeSandbox).toBe(m.removeSeed)
+    expect(m.SandboxRefused).toBe(m.SeedRefused)
   })
 })

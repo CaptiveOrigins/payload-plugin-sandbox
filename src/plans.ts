@@ -2,7 +2,7 @@ import type { Payload } from 'payload'
 
 import { generatable } from './run.js'
 import type { CollectionModel, FieldModel } from './schema.js'
-import type { Persona, SandboxOptions, SandboxPlan } from './types.js'
+import type { Persona, SeedOptions, SeedPlan } from './types.js'
 
 const MAX_PERSONAS = 12
 const MAX_SAMPLES = 12
@@ -18,7 +18,7 @@ function textFields(fields: FieldModel[], prefix = ''): string[] {
 }
 
 /** What the plan writer sees: the shape of the site. Never any documents. */
-export function schemaSummary(models: CollectionModel[], options: SandboxOptions) {
+export function schemaSummary(models: CollectionModel[], options: SeedOptions) {
   return {
     site: options.about ?? '',
     collections: models.map((m) => ({
@@ -69,7 +69,7 @@ Only use the collection slugs and fields you are given.`
 const clip = (v: unknown, n: number) => String(v ?? '').trim().slice(0, n)
 
 /** A plan as plain, checked data: only collections and text fields that exist, bounded sizes. Whatever an AI said. */
-export function cleanPlan(raw: unknown, models: CollectionModel[], source: SandboxPlan['source'], selection?: string[]): SandboxPlan {
+export function cleanPlan(raw: unknown, models: CollectionModel[], source: SeedPlan['source'], selection?: string[]): SeedPlan {
   const r = (raw ?? {}) as { summary?: unknown; collections?: { slug?: unknown; note?: unknown; samples?: { field?: unknown; values?: unknown[] }[] }[]; personas?: { collection?: unknown; name?: unknown; story?: unknown; traits?: unknown[] }[] }
   const bySlug = new Map(models.map((m) => [m.slug, m]))
   const wanted = selection?.length ? new Set(selection) : null
@@ -100,10 +100,10 @@ export function cleanPlan(raw: unknown, models: CollectionModel[], source: Sandb
  * gives `ai` (it sees the schema, never documents); otherwise plain generation with the
  * site's own personas. If the AI fails, plain generation still works.
  */
-export async function writePlan(payload: Payload, options: SandboxOptions, { collections, useAi = true }: { collections?: string[]; useAi?: boolean } = {}): Promise<SandboxPlan & { aiError?: string }> {
+export async function writePlan(payload: Payload, options: SeedOptions, { collections, useAi = true }: { collections?: string[]; useAi?: boolean } = {}): Promise<SeedPlan & { aiError?: string }> {
   const models = generatable(payload.config.collections, options)
   const own = options.personas ?? []
-  const merge = (plan: SandboxPlan): SandboxPlan => ({ ...plan, personas: [...own, ...plan.personas] })
+  const merge = (plan: SeedPlan): SeedPlan => ({ ...plan, personas: [...own, ...plan.personas] })
   if (options.ai && useAi) {
     try {
       const raw = await options.ai({ system: SYSTEM, prompt: JSON.stringify(schemaSummary(collections?.length ? models.filter((m) => collections.includes(m.slug)) : models, options)), schema: planSchema })

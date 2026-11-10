@@ -2,7 +2,7 @@ import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { buildConfig, getPayload, type CollectionConfig, type Payload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { removeSandbox, runSandbox, sandboxPlugin, type SandboxOptions } from '../src/index.js'
+import { removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
 
 /** A real Payload on a throwaway MongoDB database (MONGODB_URL, default the local test container). */
 const BASE = process.env.MONGODB_URL ?? 'mongodb://127.0.0.1:27018/?directConnection=true'
@@ -27,7 +27,7 @@ const animals: CollectionConfig = {
 }
 
 let payload: Payload
-const options: SandboxOptions = {
+const options: SeedOptions = {
   allow: () => true,
   access: () => true,
   recipes: {
@@ -42,7 +42,7 @@ beforeAll(async () => {
       secret: 'sandbox-test-secret',
       db: mongooseAdapter({ url }),
       collections: [users, media, groups, animals],
-      plugins: [sandboxPlugin(options)],
+      plugins: [seedPlugin(options)],
       typescript: { autoGenerate: false },
       upload: {},
     }),
@@ -56,7 +56,7 @@ afterAll(async () => {
 
 describe('a real sandbox run', () => {
   it('creates every collection in order with full pair coverage, marks and registers every document', async () => {
-    const report = await runSandbox(payload, options, { seed: 'test-1' })
+    const report = await runSeed(payload, options, { seed: 'test-1' })
     expect(report.order).toEqual(['media', 'users', 'groups', 'animals'])
     expect(report.failures).toEqual([])
     for (const c of report.collections) {
@@ -79,19 +79,19 @@ describe('a real sandbox run', () => {
 
   it('removes everything it created, and nothing else', async () => {
     const real = await payload.create({ collection: 'users', data: { email: 'real@example.com', password: 'a-real-password-1' } })
-    const result = await removeSandbox(payload, options)
+    const result = await removeSeed(payload, options)
     expect(result.failed).toEqual([])
     for (const c of ['animals', 'groups', 'media', 'sandbox-records', 'sandbox-batches'] as const) expect((await payload.count({ collection: c as never })).totalDocs).toBe(0)
     expect((await payload.find({ collection: 'users' })).docs.map((d) => d.id)).toEqual([real.id])
   })
 
   it('refuses to run where it is not allowed', async () => {
-    await expect(runSandbox(payload, { ...options, allow: () => false })).rejects.toThrow(/not allowed/)
+    await expect(runSeed(payload, { ...options, allow: () => false })).rejects.toThrow(/not allowed/)
   })
 })
 
 describe('plans, personas and signing in', () => {
-  const planOptions: SandboxOptions = {
+  const planOptions: SeedOptions = {
     ...options,
     about: 'A site for reptile keepers.',
     personas: [{ collection: 'users', name: 'Site Persona', story: 'Written by the site.', data: { roles: ['keeper'] } }],
@@ -121,7 +121,7 @@ describe('plans, personas and signing in', () => {
     expect(plan.collections.find((c) => c.slug === 'groups')!.samples).toEqual({ title: ['Rack A', 'Hatchling tubs'] })
     expect(plan.personas.map((p) => p.name)).toEqual(['Site Persona', 'Ana Keeper'])
 
-    const report = await runSandbox(payload, planOptions, { seed: 'plan-1', plan })
+    const report = await runSeed(payload, planOptions, { seed: 'plan-1', plan })
     expect(report.failures).toEqual([])
     expect(report.personas!.map((p) => p.name)).toEqual(['Site Persona', 'Ana Keeper'])
     expect(report.personas![0]!.email).toMatch(/^site\.persona\.\d+@example\.invalid$/)
@@ -148,18 +148,18 @@ describe('plans, personas and signing in', () => {
     const token = /payload-token=([^;]+)/.exec(cookie)![1]!
     const me = await payload.auth({ headers: new Headers({ Authorization: `JWT ${token}` }) })
     expect(me.user?.id).toBe(sandboxUser.id)
-    await expect(signInAs(req, options, 'users', String(real.id))).rejects.toThrow(/Only sandbox accounts/)
+    await expect(signInAs(req, options, 'users', String(real.id))).rejects.toThrow(/Only seeded accounts/)
     await expect(signInAs(req, { ...options, allow: () => false }, 'users', String(sandboxUser.id))).rejects.toThrow(/not allowed/)
     await payload.delete({ collection: 'users', id: real.id })
-    await removeSandbox(payload, options)
+    await removeSeed(payload, options)
   })
 
   it('offers the admin area only where the sandbox is allowed', async () => {
     const base = { secret: 'x', db: {} as never, collections: [users] }
-    const on = sandboxPlugin({ allow: () => true })(base as never) as { admin?: { components?: { views?: Record<string, unknown> } } }
-    const off = sandboxPlugin({ allow: () => false })(base as never) as { admin?: { components?: { views?: Record<string, unknown> } } }
-    expect(on.admin?.components?.views?.sandbox).toBeTruthy()
-    expect(off.admin?.components?.views?.sandbox).toBeUndefined()
+    const on = seedPlugin({ allow: () => true })(base as never) as { admin?: { components?: { views?: Record<string, unknown> } } }
+    const off = seedPlugin({ allow: () => false })(base as never) as { admin?: { components?: { views?: Record<string, unknown> } } }
+    expect(on.admin?.components?.views?.seed).toBeTruthy()
+    expect(off.admin?.components?.views?.seed).toBeUndefined()
   })
 })
 
@@ -167,7 +167,7 @@ describe('sites with their own records', () => {
   it('refers to existing documents instead of generating them, and generates only what it’s told', async () => {
     const owner = await payload.create({ collection: 'users', data: { email: `owner-${Date.now()}@example.com`, password: 'a-real-password-1', name: 'Real owner' } })
     let wrapped = 0
-    const report = await runSandbox(
+    const report = await runSeed(
       payload,
       {
         ...options,
@@ -187,7 +187,7 @@ describe('sites with their own records', () => {
     const groupsMade = (await payload.find({ collection: 'groups', pagination: false, depth: 0 })).docs as unknown as { owner: string }[]
     expect(groupsMade.length).toBeGreaterThan(0)
     expect(new Set(groupsMade.map((g) => g.owner))).toEqual(new Set([owner.id]))
-    await removeSandbox(payload, options)
+    await removeSeed(payload, options)
     expect((await payload.findByID({ collection: 'users', id: owner.id })).id).toBe(owner.id)
     await payload.delete({ collection: 'users', id: owner.id })
   })

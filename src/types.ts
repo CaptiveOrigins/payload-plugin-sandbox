@@ -51,7 +51,7 @@ export type Persona = {
 }
 
 /** What a run will do, reviewed before it starts. Plain data. */
-export type SandboxPlan = {
+export type SeedPlan = {
   source: 'ai' | 'plain'
   summary: string
   collections: { slug: string; note?: string; samples?: Record<string, string[]> }[]
@@ -60,7 +60,7 @@ export type SandboxPlan = {
 
 export type AiRequest = { system: string; prompt: string; schema: Record<string, unknown> }
 
-export type SandboxOptions = {
+export type SeedOptions = {
   /**
    * Where the sandbox may run. Required: without it, or when it returns false, the
    * plugin only refuses sandbox data (install it the same way in production).

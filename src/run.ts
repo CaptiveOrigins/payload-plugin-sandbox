@@ -9,13 +9,13 @@ import { applySamples } from './plans.js'
 import { placeholderPng } from './png.js'
 import { random } from './random.js'
 import { readCollection, type CollectionModel } from './schema.js'
-import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SandboxOptions, SandboxPlan } from './types.js'
+import type { BatchReport, Failure, Persona, PersonaReport, RecipeContext, SeedOptions, SeedPlan } from './types.js'
 
 export const MARKER = 'sandbox'
-export const defaultSlugs = (o: SandboxOptions) => ({ batches: o.slugs?.batches ?? 'sandbox-batches', records: o.slugs?.records ?? 'sandbox-records' })
+export const defaultSlugs = (o: SeedOptions) => ({ batches: o.slugs?.batches ?? 'sandbox-batches', records: o.slugs?.records ?? 'sandbox-records' })
 
 /** Collections the sandbox may generate: everything except its own, excluded and recipe-skipped ones. */
-export function generatable(collections: readonly CollectionConfig[], options: SandboxOptions): CollectionModel[] {
+export function generatable(collections: readonly CollectionConfig[], options: SeedOptions): CollectionModel[] {
   const { batches, records } = defaultSlugs(options)
   const skip = new Set([batches, records, 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders', ...(options.exclude ?? []), ...Object.keys(options.existing ?? {})])
   return collections.filter((c) => !skip.has(c.slug) && !options.recipes?.[c.slug]?.skip && (!options.only || options.only.includes(c.slug))).map(readCollection)
@@ -32,11 +32,11 @@ const message = (e: unknown) => {
  * dependency order, one document per pairwise coverage case, through Payload's Local
  * API (validation and hooks run). Every document is marked and registered for removal.
  */
-export const runSandbox = (payload: Payload, options: SandboxOptions, input: RunInput = {}): Promise<BatchReport> => (options.around ?? ((task) => task()))(() => run(payload, options, input))
+export const runSeed = (payload: Payload, options: SeedOptions, input: RunInput = {}): Promise<BatchReport> => (options.around ?? ((task) => task()))(() => run(payload, options, input))
 
-type RunInput = { seed?: string; collections?: string[]; name?: string; plan?: SandboxPlan; batch?: string }
+type RunInput = { seed?: string; collections?: string[]; name?: string; plan?: SeedPlan; batch?: string }
 
-async function run(payload: Payload, options: SandboxOptions, { seed = String(Date.now()), collections, name, plan, batch: existing }: RunInput): Promise<BatchReport> {
+async function run(payload: Payload, options: SeedOptions, { seed = String(Date.now()), collections, name, plan, batch: existing }: RunInput): Promise<BatchReport> {
   assertAllowed(payload, options)
   const slugs = defaultSlugs(options)
   const all = generatable(payload.config.collections, options)
@@ -53,7 +53,7 @@ async function run(payload: Payload, options: SandboxOptions, { seed = String(Da
   const fields = { seed, status: 'running', selection: selected, ...(plan ? { plan } : {}) }
   const batch = existing
     ? String(((await payload.update({ collection: slugs.batches as never, id: existing, data: fields as never, overrideAccess: true })) as unknown as { id: string }).id)
-    : String(((await payload.create({ collection: slugs.batches as never, data: { name: name ?? `Sandbox ${new Date().toISOString().slice(0, 16)}`, ...fields } as never, overrideAccess: true })) as unknown as { id: string }).id)
+    : String(((await payload.create({ collection: slugs.batches as never, data: { name: name ?? `Seed ${new Date().toISOString().slice(0, 16)}`, ...fields } as never, overrideAccess: true })) as unknown as { id: string }).id)
   const failures: Failure[] = []
   let serial = 0
   let position = 0

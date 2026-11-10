@@ -1,10 +1,10 @@
 {
-  "name": "@captiveorigins/payload-plugin-sandbox",
-  "version": "0.2.1",
-  "description": "Realistic, coverage-first test data for Payload: reads your schema, fills every collection in dependency order so each option, empty and full case and relationship shape appears, tracks every record for one-click removal, and refuses to run in production.",
-  "homepage": "https://github.com/CaptiveOrigins/payload-plugin-sandbox#readme",
+  "name": "@captiveorigins/payload-plugin-seed",
+  "version": "0.3.0",
+  "description": "Seed for Payload: realistic test data at scale, written with Claude",
+  "homepage": "https://github.com/CaptiveOrigins/payload-plugin-seed#readme",
   "bugs": {
-    "url": "https://github.com/CaptiveOrigins/payload-plugin-sandbox/issues"
+    "url": "https://github.com/CaptiveOrigins/payload-plugin-seed/issues"
   },
   "keywords": [
     "payload",
@@ -13,13 +13,13 @@
     "seed",
     "fake-data",
     "test-data",
-    "sandbox",
-    "pairwise"
+    "pairwise",
+    "seeding"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CaptiveOrigins/payload-plugin-sandbox.git"
+    "url": "git+https://github.com/CaptiveOrigins/payload-plugin-seed.git"
   },
   "type": "module",
   "exports": {

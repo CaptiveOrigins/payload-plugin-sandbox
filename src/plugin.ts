@@ -1,11 +1,11 @@
 import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 
-import { assertAllowed, isAllowed, SandboxRefused } from './guard.js'
+import { assertAllowed, isAllowed, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
-import { removeSandbox } from './remove.js'
-import { defaultSlugs, MARKER, runSandbox } from './run.js'
+import { removeSeed } from './remove.js'
+import { defaultSlugs, MARKER, runSeed } from './run.js'
 import { signInAs, SignInRefused } from './signIn.js'
-import type { SandboxOptions, SandboxPlan } from './types.js'
+import type { SeedOptions, SeedPlan } from './types.js'
 
 const INTERNAL = new Set(['payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
 
@@ -15,20 +15,20 @@ const markerField = (): Field => ({
   type: 'checkbox',
   index: true,
   access: { create: ({ req }) => Boolean((req.context as { sandbox?: unknown })?.sandbox), update: () => false },
-  admin: { position: 'sidebar', readOnly: true, condition: (data) => Boolean(data?.[MARKER]), description: 'Sandbox: generated test data, never real.' },
+  admin: { position: 'sidebar', readOnly: true, condition: (data) => Boolean(data?.[MARKER]), description: 'Seed: generated test data, never real.' },
 })
 
 /**
- * Sandbox: coverage-first test data for any Payload site. Install it everywhere with the
+ * Seed: coverage-first test data for any Payload site. Install it everywhere with the
  * same options: where `allow()` is false (production) it generates nothing, hides its
  * admin, and warns at start-up if sandbox data is ever found.
  */
-export const sandboxPlugin =
-  (options: SandboxOptions = {}): Plugin =>
+export const seedPlugin =
+  (options: SeedOptions = {}): Plugin =>
   (config: Config): Config => {
     const slugs = defaultSlugs(options)
     const allowedNow = Boolean(options.allow?.())
-    const access = async ({ req }: { req: Parameters<NonNullable<SandboxOptions['access']>>[0] }) => Boolean(allowedNow && req.user && (await options.access?.(req)))
+    const access = async ({ req }: { req: Parameters<NonNullable<SeedOptions['access']>>[0] }) => Boolean(allowedNow && req.user && (await options.access?.(req)))
     const endpoints: Endpoint[] = [
       {
         // Writes a plan to review; nothing is generated yet. The plan is stored as a batch waiting to run.
@@ -49,29 +49,29 @@ export const sandboxPlugin =
           if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
           const body = ((await req.json?.().catch(() => ({}))) ?? {}) as { seed?: string; collections?: string[]; name?: string; batch?: string }
           try {
-            let plan: SandboxPlan | undefined
+            let plan: SeedPlan | undefined
             if (body.batch) {
-              const doc = (await req.payload.findByID({ collection: slugs.batches as never, id: body.batch, depth: 0, overrideAccess: true })) as unknown as { status?: string; plan?: SandboxPlan }
+              const doc = (await req.payload.findByID({ collection: slugs.batches as never, id: body.batch, depth: 0, overrideAccess: true })) as unknown as { status?: string; plan?: SeedPlan }
               if (doc.status !== 'planned') return Response.json({ error: 'That plan has already run.' }, { status: 409 })
               plan = doc.plan
             }
             assertAllowed(req.payload, options)
             if (options.defer) {
-              const batch = body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Sandbox ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
+              const batch = body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Seed ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
               await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
               options.defer(async () => {
                 try {
-                  await runSandbox(req.payload, options, { ...body, batch, plan })
+                  await runSeed(req.payload, options, { ...body, batch, plan })
                 } catch (e) {
                   await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'failed', report: { error: (e as Error).message } } as never, overrideAccess: true })
                 }
               })
               return Response.json({ batch, status: 'running' }, { status: 202 })
             }
-            const report = await runSandbox(req.payload, options, { ...body, plan })
+            const report = await runSeed(req.payload, options, { ...body, plan })
             return Response.json(report)
           } catch (e) {
-            return Response.json({ error: (e as Error).message }, { status: e instanceof SandboxRefused ? 403 : 500 })
+            return Response.json({ error: (e as Error).message }, { status: e instanceof SeedRefused ? 403 : 500 })
           }
         },
       },
@@ -81,7 +81,7 @@ export const sandboxPlugin =
         handler: async (req) => {
           if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
           const body = (await req.json?.().catch(() => ({}))) as { batch?: string; collection?: string }
-          return Response.json(await removeSandbox(req.payload, options, body ?? {}))
+          return Response.json(await removeSeed(req.payload, options, body ?? {}))
         },
       },
       {
@@ -102,8 +102,8 @@ export const sandboxPlugin =
     ]
     const batches: CollectionConfig = {
       slug: slugs.batches,
-      labels: { singular: 'Sandbox batch', plural: 'Sandbox batches' },
-      admin: { group: 'Sandbox', hidden: !allowedNow, useAsTitle: 'name', defaultColumns: ['name', 'status', 'seed', 'createdAt'], description: 'Generated test data. Remove a batch to delete everything it created.' },
+      labels: { singular: 'Seed batch', plural: 'Seed batches' },
+      admin: { group: 'Seed', hidden: !allowedNow, useAsTitle: 'name', defaultColumns: ['name', 'status', 'seed', 'createdAt'], description: 'Generated test data. Remove a batch to delete everything it created.' },
       access: { read: access, create: () => false, update: () => false, delete: access },
       endpoints,
       fields: [
@@ -117,8 +117,8 @@ export const sandboxPlugin =
     }
     const records: CollectionConfig = {
       slug: slugs.records,
-      labels: { singular: 'Sandbox record', plural: 'Sandbox records' },
-      admin: { group: 'Sandbox', hidden: true },
+      labels: { singular: 'Seed record', plural: 'Seed records' },
+      admin: { group: 'Seed', hidden: true },
       access: { read: access, create: () => false, update: () => false, delete: () => false },
       fields: [
         { name: 'batch', type: 'relationship', relationTo: slugs.batches as never, index: true },
@@ -136,8 +136,8 @@ export const sandboxPlugin =
             ...config.admin,
             components: {
               ...components,
-              afterNavLinks: [...(components.afterNavLinks ?? []), '@captiveorigins/payload-plugin-sandbox/rsc#SandboxNavLink'],
-              views: { ...components.views, sandbox: { Component: { path: '@captiveorigins/payload-plugin-sandbox/rsc#SandboxView', serverProps: { sandboxAccess: options.access, sandboxOnly: options.only, sandboxHidden: [...(options.exclude ?? []), ...Object.keys(options.existing ?? {})] } }, path: '/sandbox' } },
+              afterNavLinks: [...(components.afterNavLinks ?? []), '@captiveorigins/payload-plugin-seed/rsc#SeedNavLink'],
+              views: { ...components.views, seed: { Component: { path: '@captiveorigins/payload-plugin-seed/rsc#SeedView', serverProps: { seedAccess: options.access, seedOnly: options.only, seedHidden: [...(options.exclude ?? []), ...Object.keys(options.existing ?? {})] } }, path: '/seed' } },
             },
           }
         : config.admin,
@@ -150,7 +150,7 @@ export const sandboxPlugin =
           if (INTERNAL.has(c.slug)) continue
           try {
             const { totalDocs } = await payload.count({ collection: c.slug as never, where: { [MARKER]: { equals: true } } as never, overrideAccess: true })
-            if (totalDocs) payload.logger.error(`Sandbox data found in “${c.slug}” (${totalDocs}) where the sandbox is not allowed. Remove it with removeSandbox().`)
+            if (totalDocs) payload.logger.error(`Seed data found in “${c.slug}” (${totalDocs}) where seeding is not allowed. Remove it with removeSeed().`)
           } catch {
             /* collection without a database table yet */
           }

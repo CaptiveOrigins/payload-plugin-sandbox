@@ -3,9 +3,9 @@
 import { Button } from '@payloadcms/ui'
 import React, { useCallback, useEffect, useState } from 'react'
 
-import type { BatchReport, SandboxPlan } from '../types.js'
+import type { BatchReport, SeedPlan } from '../types.js'
 
-type Batch = { id: string; name: string; status: string; seed?: string; plan?: SandboxPlan; report?: (BatchReport & { error?: string }) | null; createdAt: string }
+type Batch = { id: string; name: string; status: string; seed?: string; plan?: SeedPlan; report?: (BatchReport & { error?: string }) | null; createdAt: string }
 
 const POLL_MS = 3000
 const box: React.CSSProperties = { border: '1px solid var(--theme-elevation-150)', borderRadius: 6, padding: 'var(--base)', marginBottom: 'var(--base)' }
@@ -19,7 +19,7 @@ async function post(url: string, body: unknown) {
   return json ?? {}
 }
 
-export function SandboxPanel({ apiPath, batchesPath, siteHome, collections }: { apiPath: string; batchesPath: string; siteHome: string; collections: string[] }) {
+export function SeedPanel({ apiPath, batchesPath, siteHome, collections }: { apiPath: string; batchesPath: string; siteHome: string; collections: string[] }) {
   const [batches, setBatches] = useState<Batch[]>([])
   const [chosen, setChosen] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)

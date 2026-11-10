@@ -1,7 +1,7 @@
 import type { Payload } from 'payload'
 
 import { defaultSlugs } from './run.js'
-import type { SandboxOptions } from './types.js'
+import type { SeedOptions } from './types.js'
 
 /**
  * Removes sandbox documents (all, one batch, or one collection of a batch) in reverse
@@ -9,11 +9,11 @@ import type { SandboxOptions } from './types.js'
  * the register are touched; real data never is. Removing runs anywhere (also where
  * generating is refused), so stray sandbox data can always be cleaned up.
  */
-export const removeSandbox = (payload: Payload, options: SandboxOptions, input: { batch?: string; collection?: string } = {}): Promise<Removed> => (options.around ?? ((task) => task()))(() => remove(payload, options, input))
+export const removeSeed = (payload: Payload, options: SeedOptions, input: { batch?: string; collection?: string } = {}): Promise<Removed> => (options.around ?? ((task) => task()))(() => remove(payload, options, input))
 
 type Removed = { removed: number; failed: { collection: string; id: string; message: string }[] }
 
-async function remove(payload: Payload, options: SandboxOptions, { batch, collection }: { batch?: string; collection?: string }): Promise<Removed> {
+async function remove(payload: Payload, options: SeedOptions, { batch, collection }: { batch?: string; collection?: string }): Promise<Removed> {
   const slugs = defaultSlugs(options)
   const where = { and: [...(batch ? [{ batch: { equals: batch } }] : []), ...(collection ? [{ collection: { equals: collection } }] : [])] }
   const records = (await payload.find({ collection: slugs.records as never, where: where as never, sort: '-order', pagination: false, depth: 0, overrideAccess: true })).docs as unknown as { id: string; collection: string; docId: string }[]
