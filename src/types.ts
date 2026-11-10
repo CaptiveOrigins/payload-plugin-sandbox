@@ -105,8 +105,13 @@ export type SeedOptions = {
    * (for example administrators and service accounts). Matches are reported as kept.
    */
   keep?: Record<string, Where>
+  /**
+   * Throws if outgoing effects (email, webhooks, payments) are on in this environment. When given,
+   * seeding refuses to run while it throws: switching effects off in `around` isn't proof they're off.
+   */
+  assertQuiet?: () => void | Promise<void>
   /** Slugs of the plugin's collections. */
-  slugs?: { batches?: string; records?: string }
+  slugs?: { batches?: string; records?: string; marker?: string }
 }
 
 export type Failure = { collection: string; case?: Record<string, string>; message: string }

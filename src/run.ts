@@ -3,7 +3,7 @@ import type { CollectionConfig, Payload } from 'payload'
 
 import { pairCoverage, pairwise } from './coverage.js'
 import { creationOrder, withDependencies } from './graph.js'
-import { assertAllowed } from './guard.js'
+import { assertAllowed, markerSlug } from './guard.js'
 import { buildDoc, dimensionsFor } from './plan.js'
 import { applySamples } from './plans.js'
 import { placeholderPng } from './png.js'
@@ -19,7 +19,7 @@ export const defaultSlugs = (o: SeedOptions) => ({ batches: o.slugs?.batches ?? 
 /** Collections the sandbox may generate: everything except its own, excluded and recipe-skipped ones. */
 export function generatable(collections: readonly CollectionConfig[], options: SeedOptions): CollectionModel[] {
   const { batches, records } = defaultSlugs(options)
-  const skip = new Set([batches, records, 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders', ...(options.exclude ?? []), ...Object.keys(options.existing ?? {})])
+  const skip = new Set([batches, records, markerSlug(options), 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders', ...(options.exclude ?? []), ...Object.keys(options.existing ?? {})])
   return collections.filter((c) => !skip.has(c.slug) && !options.recipes?.[c.slug]?.skip && (!options.only || options.only.includes(c.slug))).map(readCollection)
 }
 
@@ -39,7 +39,7 @@ export const runSeed = (payload: Payload, options: SeedOptions, input: RunInput 
 type RunInput = { seed?: string; collections?: string[]; name?: string; plan?: SeedPlan; batch?: string }
 
 async function run(payload: Payload, options: SeedOptions, { seed = String(Date.now()), collections, name, plan, batch: existing }: RunInput): Promise<BatchReport> {
-  assertAllowed(payload, options)
+  await assertAllowed(payload, options)
   const slugs = defaultSlugs(options)
   const all = generatable(payload.config.collections, options)
   const chosen = collections?.length ? collections : plan?.collections.map((c) => c.slug)

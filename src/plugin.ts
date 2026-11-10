@@ -1,13 +1,13 @@
 import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 
-import { assertAllowed, isAllowed, SeedRefused } from './guard.js'
+import { assertAllowed, isAllowed, markerSlug, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
 import { removeSeed } from './remove.js'
 import { defaultSlugs, MARKER, MARKER_BATCH, runSeed } from './run.js'
 import { signInAs, SignInRefused } from './signIn.js'
 import type { SeedOptions, SeedPlan } from './types.js'
 
-const INTERNAL = new Set(['payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
+const INTERNAL = new Set(['seed-marker', 'payload-preferences', 'payload-migrations', 'payload-locked-documents', 'payload-jobs', 'payload-kv', 'payload-folders'])
 
 /** The marker every sandbox document carries; only the sandbox itself can set it. */
 const markerField = (): Field => ({
@@ -64,7 +64,7 @@ export const seedPlugin =
               if (doc.status !== 'planned') return Response.json({ error: 'That plan has already run.' }, { status: 409 })
               plan = doc.plan
             }
-            assertAllowed(req.payload, options)
+            await assertAllowed(req.payload, options)
             if (options.defer) {
               const batch = body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Seed ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
               await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
@@ -136,6 +136,20 @@ export const seedPlugin =
         { name: 'order', type: 'number' },
       ],
     }
+    // One document that says "this database is for testing" (guard check 3). Written only through
+    // markTestDatabase(), never through the API; readable by whoever may seed.
+    const marker: CollectionConfig = {
+      slug: markerSlug(options),
+      labels: { singular: 'Test-database marker', plural: 'Test-database markers' },
+      admin: { group: 'Seed', hidden: true },
+      access: { read: access, create: () => false, update: () => false, delete: () => false },
+      fields: [
+        { name: 'database', type: 'text', required: true, index: true },
+        { name: 'host', type: 'text', required: true },
+        { name: 'markedAt', type: 'date' },
+        { name: 'markedBy', type: 'text' },
+      ],
+    }
     const collections = (config.collections ?? []).map((c) => (INTERNAL.has(c.slug) ? c : { ...c, fields: [...c.fields, markerField(), batchField()] }))
     const components = config.admin?.components ?? {}
     return {
@@ -150,10 +164,10 @@ export const seedPlugin =
             },
           }
         : config.admin,
-      collections: [...collections, batches, records],
+      collections: [...collections, batches, records, marker],
       onInit: async (payload) => {
         await config.onInit?.(payload)
-        if (isAllowed(payload, options)) return
+        if (await isAllowed(payload, options)) return
         // Where the sandbox is refused (production), sandbox data must never exist.
         for (const c of collections) {
           if (INTERNAL.has(c.slug)) continue

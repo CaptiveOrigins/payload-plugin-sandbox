@@ -2,7 +2,7 @@ import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { buildConfig, getPayload, type CollectionConfig, type Payload } from 'payload'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
+import { markTestDatabase, removeSeed, runSeed, seedPlugin, type SeedOptions } from '../src/index.js'
 
 /** A real Payload on a throwaway MongoDB database (MONGODB_URL, default the local test container). */
 const BASE = process.env.MONGODB_URL ?? 'mongodb://127.0.0.1:27018/?directConnection=true'
@@ -49,6 +49,7 @@ beforeAll(async () => {
       upload: {},
     }),
   })
+  await markTestDatabase(payload, options, { confirm: dbName, by: 'integration test' })
 })
 
 afterAll(async () => {
@@ -89,6 +90,28 @@ describe('a real sandbox run', () => {
 
   it('refuses to run where it is not allowed', async () => {
     await expect(runSeed(payload, { ...options, allow: () => false })).rejects.toThrow(/not allowed/)
+  })
+
+  it('marks a test database only when the name is typed, once, and never through the API', async () => {
+    await expect(markTestDatabase(payload, options, { confirm: 'test' })).rejects.toThrow(/type the database name/)
+    await expect(markTestDatabase(payload, { ...options, allow: () => false }, { confirm: dbName })).rejects.toThrow(/not allowed/)
+    expect((await markTestDatabase(payload, options, { confirm: dbName })).created).toBe(false)
+    expect((await payload.count({ collection: 'seed-marker' as never })).totalDocs).toBe(1)
+    await expect(payload.create({ collection: 'seed-marker' as never, data: { database: dbName, host: 'x' } as never, overrideAccess: false })).rejects.toThrow()
+  })
+
+  it('refuses a database whose marker was written on another host (a restored copy)', async () => {
+    const marker = (await payload.find({ collection: 'seed-marker' as never, depth: 0 })).docs[0] as unknown as { id: string; host: string }
+    await payload.update({ collection: 'seed-marker' as never, id: marker.id, data: { host: 'elsewhere.example.net' } as never, overrideAccess: true })
+    try {
+      await expect(runSeed(payload, options, { collections: ['users'] })).rejects.toThrow(/another database or host/)
+    } finally {
+      await payload.update({ collection: 'seed-marker' as never, id: marker.id, data: { host: marker.host } as never, overrideAccess: true })
+    }
+  })
+
+  it('refuses while outgoing effects are on', async () => {
+    await expect(runSeed(payload, { ...options, assertQuiet: () => { throw new Error('payments are on') } }, { collections: ['users'] })).rejects.toThrow(/payments are on/)
   })
 })
 
