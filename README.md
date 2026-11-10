@@ -64,6 +64,17 @@ Three checks, each failing closed. A refusal says which one failed.
 Give `assertQuiet` (a function that throws while email, webhooks or payments are on) and seeding also refuses while it throws. Switching effects off in `around` isn't proof they're off.
 - Every generated document carries a read-only `sandbox` marker that only Seed can set. Where seeding is not allowed, start-up logs an error if any marked document exists (for example after copying a test database).
 
+## Big seeds
+
+A small seed makes one record per coverage case. A big one makes the coverage cases first, then more records up to counts you set, so the site feels lived in:
+
+- **Settings in the admin** (`seed-settings`, under Seed): counts per collection as `{ "ceiling", "minimum", "bulk" }`, the target share of the database, its limit, every database on the cluster, measured bytes per record, models and the spend cap. The site's code gives defaults (`seedPlugin({ defaults })`); an empty field uses them.
+- **Sized before anything is written.** A big run measures the cluster and sizes the counts (below). If they don't fit, it refuses and writes nothing. "Check what fits" in the admin shows the counts and the projected share first.
+- **Text people read** comes from `texts` (for example Claude, see below), for big seeds only. Each record is described by the values code chose for it, never ids or real data; code still decides every value that has to be right. Deliberate edge cases keep their odd text. Small seeds use word lists, so CI stays free.
+- **Interrupted runs carry on.** Progress is saved as it goes; "Carry on where it stopped" (or `runSeed(payload, options, { resume: batchId })`) keeps what was made and makes the rest, after measuring the cluster again: if the rest would pass the hard cap, it refuses.
+- **Exact counts** (`runSeed(..., { counts })`) skip sizing, for tests and code that already checked with `planSize()`. Big runs from the admin always size.
+- **Speed:** coverage cases are created one at a time, the rest `concurrency` at once (default 4). Unique values (emails, slugs) carry a short batch tag, so batches never collide.
+
 ## Size: fill to a share of the cluster
 
 Small database tiers have hard limits, and a seed that overshoots can stop the site writing. Seed measures and plans before it loads:

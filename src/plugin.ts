@@ -3,7 +3,8 @@ import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 import { assertAllowed, assertConfigAllowed, markerSlug, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
 import { removeSeed } from './remove.js'
-import { defaultSlugs, MARKER, MARKER_BATCH, runSeed } from './run.js'
+import { defaultSlugs, MARKER, MARKER_BATCH, planSize, runSeed } from './run.js'
+import { readSettings, settingsGlobal, settingsSlug } from './settings.js'
 import { signInAs, SignInRefused } from './signIn.js'
 import type { SeedOptions, SeedPlan } from './types.js'
 
@@ -56,7 +57,8 @@ export const seedPlugin =
         method: 'post',
         handler: async (req) => {
           if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
-          const body = ((await req.json?.().catch(() => ({}))) ?? {}) as { seed?: string; collections?: string[]; name?: string; batch?: string }
+          const raw = ((await req.json?.().catch(() => ({}))) ?? {}) as { seed?: string; collections?: string[]; name?: string; batch?: string; size?: string; resume?: string }
+          const body = { seed: raw.seed, collections: raw.collections, name: raw.name, batch: raw.batch, size: raw.size === 'big' ? ('big' as const) : ('small' as const), resume: typeof raw.resume === 'string' ? raw.resume : undefined }
           try {
             let plan: SeedPlan | undefined
             if (body.batch) {
@@ -66,7 +68,7 @@ export const seedPlugin =
             }
             await assertAllowed(req.payload, options)
             if (options.defer) {
-              const batch = body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Seed ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
+              const batch = body.resume ?? body.batch ?? String((await req.payload.create({ collection: slugs.batches as never, data: { name: body.name?.slice(0, 120) || `Seed ${new Date().toISOString().slice(0, 16)}`, status: 'running' } as never, overrideAccess: true })).id)
               await req.payload.update({ collection: slugs.batches as never, id: batch, data: { status: 'running' } as never, overrideAccess: true })
               options.defer(async () => {
                 try {
@@ -79,6 +81,21 @@ export const seedPlugin =
             }
             const report = await runSeed(req.payload, options, { ...body, plan })
             return Response.json(report)
+          } catch (e) {
+            return Response.json({ error: (e as Error).message }, { status: e instanceof SeedRefused ? 403 : 500 })
+          }
+        },
+      },
+      {
+        // What a big seed would make here and now: measured, sized, nothing written.
+        path: '/size',
+        method: 'get',
+        handler: async (req) => {
+          if (!(await access({ req }))) return Response.json({ error: 'Not allowed' }, { status: 403 })
+          try {
+            await assertAllowed(req.payload, options)
+            const settings = await readSettings(req.payload, options)
+            return Response.json({ plan: await planSize(req.payload, options), settings: { targetShare: settings.targetShare, hardCap: settings.hardCap, limitMB: settings.limitMB, databases: settings.databases } })
           } catch (e) {
             return Response.json({ error: (e as Error).message }, { status: e instanceof SeedRefused ? 403 : 500 })
           }
@@ -165,6 +182,7 @@ export const seedPlugin =
           }
         : config.admin,
       collections: [...collections, batches, records, marker],
+      globals: [...(config.globals ?? []), settingsGlobal(settingsSlug(options), access, !allowedNow)],
       onInit: async (payload) => {
         await config.onInit?.(payload)
         // Only the configuration checks decide this: an unmarked or unreadable test-database marker

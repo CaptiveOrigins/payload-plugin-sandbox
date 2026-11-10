@@ -30,8 +30,8 @@ export const lexical = (text: string) => ({
 
 export type ValueContext = {
   rnd: Random
-  /** Unique counter for unique fields and emails. */
-  serial: () => number
+  /** Unique token for unique fields and emails (unique across batches too). */
+  serial: () => number | string
   /** Domain for generated emails (never deliverable). Default example.invalid. */
   emailDomain: string
 }
@@ -50,7 +50,7 @@ export function scalarValue(f: FieldModel, variant: Variant, ctx: ValueContext):
   }
   switch (f.type) {
     case 'email':
-      return `sandbox+${ctx.serial()}@${ctx.emailDomain}`
+      return `seed+${ctx.serial()}@${ctx.emailDomain}`
     case 'text': {
       let s: string
       if (edge) s = rnd.pick(EDGE)

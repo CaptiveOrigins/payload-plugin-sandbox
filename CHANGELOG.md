@@ -19,6 +19,9 @@
   - `assertQuiet`: optional; seeding refuses while it throws.
   - `assertAllowed` and `isAllowed` are now async. `assertConfigAllowed` keeps the first two checks, synchronous.
 - **Auto-sizing:** `measureCluster`, `planCounts`, `calibrate` and `sizeStatus` fill a cluster up to a share of its limit, shrinking bulk kinds first and refusing when the minimums don't fit.
+- **Big seeds:** `runSeed(..., { size: 'big' })` makes the coverage cases, then more records up to the counts in a new `seed-settings` global, sized to the cluster first (refusing before writing when they don't fit). Also `counts` (exact), `resume` (carry on an interrupted batch) and `texts` (a text source for what people read; big seeds only). The admin gets a size choice, "Check what fits", progress and "Carry on where it stopped".
+- **Unique values carry a batch tag** (emails are now `seed+<tag><n>@example.invalid`), so separate batches never collide.
+- **Coverage plans** skip the seed's own globals.
 - **Removed:** the `sandboxPlugin`, `runSandbox`, `removeSandbox`, `SandboxRefused`, `SandboxOptions` and `SandboxPlan` aliases, and the component aliases `SandboxPanel` (`/client`), `SandboxView` and `SandboxNavLink` (`/rsc`), all deprecated in 0.3.0. Use the `Seed` names.
 
 **Upgrading:** mark each test database once with `markTestDatabase()` before seeding it again. Await `assertAllowed` and `isAllowed`. Build the new `sandboxBatch` index wherever your database doesn't build indexes automatically (for example a script you run after migrations). Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker).
