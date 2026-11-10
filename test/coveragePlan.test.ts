@@ -70,10 +70,16 @@ describe('coverage plan', () => {
     expect(selectMinimums(config, p, 'small').map((m) => m.minimum)).toEqual([2, 2, 0])
   })
 
-  it('drafts a plan that passes, for review', () => {
+  it('drafts a plan whose only gaps are the reasons a person must write', () => {
     const draft = draftCoveragePlan(config)
     expect(Object.keys(draft.collections)).toEqual(['animals', 'groups', 'taxa'])
-    expect(checkCoveragePlan(config, draft).ok).toBe(true)
+    expect(checkCoveragePlan(config, draft).issues.map((i) => [i.code, i.collection])).toEqual([['reason-missing', 'settings']])
+  })
+
+  it('refuses a TODO placeholder as a reason', () => {
+    const p = plan()
+    p.collections.taxa = { existing: 'todo: say why' }
+    expect(checkCoveragePlan(config, p).issues.map((i) => i.code)).toEqual(['reason-missing'])
   })
 
   it('throws with every gap listed', () => {

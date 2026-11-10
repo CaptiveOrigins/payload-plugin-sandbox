@@ -60,7 +60,11 @@ function leaves(fields: FieldModel[]): FieldModel[] {
   return fields.flatMap((f) => (f.type === 'group' || f.type === 'array' ? leaves(f.fields ?? []) : f.type === 'blocks' ? (f.blocks ?? []).flatMap((b) => leaves(b.fields).map((l) => ({ ...l, path: l.path.replace(`${f.path}[].`, `${f.path}[].${b.slug}.`) }))) : [f]))
 }
 
-const hasReason = (v: { skip?: unknown; existing?: unknown }) => typeof (v.skip ?? v.existing) === 'string' && String(v.skip ?? v.existing).trim().length > 0
+/** A real reason: not empty, and not a draft's "TODO:" placeholder. */
+const hasReason = (v: { skip?: unknown; existing?: unknown }) => {
+  const r = v.skip ?? v.existing
+  return typeof r === 'string' && r.trim().length > 0 && !/^\s*todo\b/i.test(r)
+}
 
 /**
  * Checks a seed plan against the schema, offline (no database, no key): every collection is
