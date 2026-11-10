@@ -10,7 +10,31 @@ permissions:
   contents: read
   id-token: write
 jobs:
+  # A version already on npm (for example one published by hand, as the first version must be)
+  # is skipped cleanly: tagging it only marks the commit, it stages nothing.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      published: ${{ steps.npm.outputs.published }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Tag matches package.json
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      - name: Already on npm?
+        id: npm
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "$(npm view "$NAME@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME@$VERSION is already on npm; nothing to stage."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
   stage:
+    needs: check
+    if: needs.check.outputs.published != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
