@@ -117,6 +117,26 @@ describe('Claude text source (mocked API: no requests leave the machine)', () =>
     expect(sent.length).toBe(report.requests)
   })
 
+  it('counts the cache-write premium in the worst case, so a cap between the two figures sends nothing', async () => {
+    const { PRICES } = await import('../src/index.js')
+    const p = PRICES.models['claude-haiku-5-5']!
+    const { client, sent } = mockClaude((q) => ({ type: 'succeeded', message: good(q) }))
+    const source = claudeTexts({ client, sleep: noSleep, perRequest: 50 })
+    const { worstUSD } = await source.estimate!(jobs(1), settings)
+    // The same request priced as if the cached system prompt cost plain input: the old, too-low figure.
+    const noPremium = { ...PRICES, models: { ...PRICES.models, 'claude-haiku-5-5': { ...p, cacheWrite: p.input } } }
+    const { worstUSD: withoutPremium } = await claudeTexts({ client, prices: noPremium }).estimate!(jobs(1), settings)
+    expect(withoutPremium).toBeLessThan(worstUSD)
+    const cap = (withoutPremium + worstUSD) / 2
+    const { report } = (await source(jobs(1), { seed: 's', settings: { ...settings, spend: { capUSD: cap, askAboveUSD: 0 } } })) as unknown as { report: { capped: boolean; requests: number } }
+    expect(report.capped).toBe(true)
+    expect(sent.length).toBe(0)
+    // Usage is costed with the cache-write price too.
+    const write = mockClaude((q) => ({ type: 'succeeded', message: { ...good(q), usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 1_000_000 } } }))
+    const { report: paid } = (await claudeTexts({ client: write.client, sleep: noSleep })(jobs(1), { seed: 's', settings })) as unknown as { report: { costUSD: number } }
+    expect(paid.costUSD).toBeCloseTo(p.cacheWrite * PRICES.batchDiscount)
+  })
+
   it('drops values that break the content rules, and keeps the rest', async () => {
     const bad: Record<string, string> = { r0: 'Lorem ipsum dolor', r1: 'Write to jane@mail.test', r2: 'See https://realsite.org/page', r3: 'Seed: a tortoise', r4: 'Mail me at pat@example.com or https://example.com/x' }
     const { client } = mockClaude((p) => ({ type: 'succeeded', message: good(p, (path, id) => (path === 'notes' ? (bad[id] ?? 'Fine notes') : 'Name')) }))
