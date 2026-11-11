@@ -549,3 +549,71 @@ describe('bulk removal', () => {
     await payload.db.deleteMany({ collection: 'ghosts', where: { id: { exists: true } } as never })
   })
 })
+
+describe('only the seed marks, and only marked records go (test audit 2026-11-10)', () => {
+  const realUser = (tag: string) => payload.create({ collection: 'users', data: { email: `real-${tag}-${Date.now()}@example.com`, password: 'a-real-password-1' } })
+  type Marked = { id: string; sandbox?: boolean; sandboxBatch?: string }
+
+  it('ignores the marker and batch id when a signed-in person sends them through the API', async () => {
+    const person = await realUser('api')
+    const forged = (await payload.create({ collection: 'ghosts', data: { title: 'Forged', sandbox: true, sandboxBatch: 'forged' } as never, overrideAccess: false, user: { ...person, collection: 'users' } as never })) as unknown as Marked
+    const stored = (await payload.findByID({ collection: 'ghosts', id: forged.id, depth: 0 })) as unknown as Marked
+    expect(stored.sandbox).toBeFalsy()
+    expect(stored.sandboxBatch).toBeFalsy()
+    const report = await runSeed(payload, options, { seed: 'api-1', collections: ['ghosts'] })
+    const seeded = (await payload.find({ collection: 'ghosts', where: { sandboxBatch: { equals: report.batch } } as never, limit: 1, depth: 0 })).docs[0] as unknown as Marked
+    await payload.update({ collection: 'ghosts', id: seeded.id, data: { sandbox: false, sandboxBatch: 'moved' } as never, overrideAccess: false, user: { ...person, collection: 'users' } as never })
+    const after = (await payload.findByID({ collection: 'ghosts', id: seeded.id, depth: 0 })) as unknown as Marked
+    expect(after.sandbox).toBe(true)
+    expect(after.sandboxBatch).toBe(report.batch)
+    await removeSeed(payload, { ...options, bulkRemove: ['ghosts'] }, { batch: report.batch })
+    // Ghosts refuse every delete through the API (their hook), so clean up past it.
+    await payload.db.deleteMany({ collection: 'ghosts', where: { id: { equals: forged.id } } as never })
+    await payload.delete({ collection: 'users', id: person.id })
+  })
+
+  it('never removes an unmarked record that carries a batch id, one at a time or in bulk', async () => {
+    const report = await runSeed(payload, options, { seed: 'unmarked-1', collections: ['users', 'ghosts'] })
+    const person = await realUser('unmarked')
+    const ghost = await payload.create({ collection: 'ghosts', data: { title: 'A real ghost with a batch id' } })
+    // Written past the API, as a bad import or a hand edit could.
+    await payload.db.updateOne({ collection: 'users', id: person.id, data: { sandboxBatch: report.batch } as never })
+    await payload.db.updateOne({ collection: 'ghosts', id: ghost.id, data: { sandboxBatch: report.batch } as never })
+    expect(((await payload.findByID({ collection: 'users', id: person.id, depth: 0 })) as unknown as Marked).sandboxBatch).toBe(report.batch)
+    const result = await removeSeed(payload, { ...options, bulkRemove: ['ghosts'] }, { batch: report.batch })
+    expect(result.failed).toEqual([])
+    expect((await payload.findByID({ collection: 'users', id: person.id, depth: 0 })).id).toBe(person.id)
+    expect((await payload.findByID({ collection: 'ghosts', id: ghost.id, depth: 0 })).id).toBe(ghost.id)
+    expect((await payload.count({ collection: 'users', where: { and: [{ sandbox: { equals: true } }, { sandboxBatch: { equals: report.batch } }] } as never })).totalDocs).toBe(0)
+    await payload.delete({ collection: 'users', id: person.id })
+    await payload.db.deleteMany({ collection: 'ghosts', where: { id: { equals: ghost.id } } as never })
+  })
+
+  it('removes a kept collection one at a time even when it is named for bulk removal', async () => {
+    const report = await runSeed(payload, options, { seed: 'bulk-keep-1', collections: ['groups'] })
+    const made = (await payload.find({ collection: 'groups', where: { sandboxBatch: { equals: report.batch } } as never, pagination: false, depth: 0 })).docs as unknown as { id: string; title: string }[]
+    expect(made.length).toBeGreaterThan(1)
+    const keeper = made[0]!
+    const result = await removeSeed(payload, { ...options, bulkRemove: ['groups'], keep: { groups: { id: { equals: keeper.id } } } }, { batch: report.batch, collection: 'groups' })
+    expect(result.kept).toEqual([{ collection: 'groups', id: String(keeper.id) }])
+    expect(result.removed).toBe(made.length - 1)
+    expect((await payload.findByID({ collection: 'groups', id: keeper.id, depth: 0 })).id).toBe(keeper.id)
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+
+  it('refuses to sign in to a collection without accounts, a missing account, or a marked account no batch made', async () => {
+    const { signInAs } = await import('../src/index.js')
+    const req = { payload, headers: new Headers() } as never
+    const report = await runSeed(payload, options, { seed: 'signin-2', collections: ['groups'] })
+    const group = (await payload.find({ collection: 'groups', where: { sandboxBatch: { equals: report.batch } } as never, limit: 1, depth: 0 })).docs[0]!
+    await expect(signInAs(req, options, 'groups', String(group.id))).rejects.toThrow(/no accounts/)
+    await expect(signInAs(req, options, 'no-such-collection', 'x')).rejects.toThrow(/no accounts/)
+    await expect(signInAs(req, options, 'users', '000000000000000000000000')).rejects.toThrow(/Only seeded accounts/)
+    // Marked, but with no batch and no register row: not something the seed made.
+    const person = await realUser('signin')
+    await payload.db.updateOne({ collection: 'users', id: person.id, data: { sandbox: true } as never })
+    await expect(signInAs(req, options, 'users', String(person.id))).rejects.toThrow(/Only seeded accounts/)
+    await payload.delete({ collection: 'users', id: person.id })
+    await removeSeed(payload, options, { batch: report.batch })
+  })
+})

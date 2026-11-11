@@ -200,3 +200,125 @@ describe('bulk removal settings', () => {
     expect(() => seedPlugin({ allow: () => true, bulkRemove: ['versioned'] })({ ...base, collections: [...base.collections, versioned] } as never)).toThrow(/keeps versions/)
   })
 })
+
+describe('who may use the seed (test audit 2026-11-10)', () => {
+  type Handler = (req: unknown) => Promise<Response>
+  type Fn = (args: unknown) => unknown
+  const setup = (options: Parameters<typeof seedPlugin>[0]) => {
+    const config = seedPlugin(options)({ collections: [animals, groups, users] } as never) as Config
+    const coll = (slug: string) => config.collections!.find((c) => c.slug === slug)!
+    const endpoints = Object.fromEntries((coll('sandbox-batches').endpoints as { path: string; handler: Handler }[]).map((e) => [e.path, e.handler]))
+    return { config, coll, endpoints }
+  }
+  // Any read or write here would mean a refusal came too late.
+  const untouchable = new Proxy({}, { get: (_, key) => { throw new Error(`touched payload.${String(key)}`) } })
+  const req = (user: unknown) => ({ user, payload: untouchable, json: async () => ({ collection: 'users', id: 'x' }), context: {} })
+
+  it('refuses every endpoint, before touching the database, without a user, without access, or where allow() is false', async () => {
+    const cases = [
+      { options: { allow: () => true, access: () => true }, user: null },
+      { options: { allow: () => true, access: () => false }, user: { id: 'u' } },
+      { options: { allow: () => true }, user: { id: 'u' } },
+      { options: { allow: () => false, access: () => true }, user: { id: 'u' } },
+      { options: { access: () => true }, user: { id: 'u' } },
+    ]
+    for (const { options, user } of cases) {
+      const { endpoints } = setup(options)
+      expect(Object.keys(endpoints).sort()).toEqual(['/plan', '/remove', '/run', '/sign-in-as', '/size'])
+      for (const [path, handler] of Object.entries(endpoints)) {
+        const res = await handler(req(user))
+        expect([path, res.status]).toEqual([path, 403])
+      }
+    }
+  })
+
+  it('refuses run and size with 403 when the database looks like production, even for an allowed admin', async () => {
+    const { endpoints } = setup({ allow: () => true, access: () => true })
+    const prod = { db: { url: 'mongodb://h/shop_prod' } }
+    for (const path of ['/run', '/size']) {
+      const res = await endpoints[path]!({ user: { id: 'u' }, payload: prod, json: async () => ({}) })
+      expect([path, res.status]).toEqual([path, 403])
+      expect(((await res.json()) as { error: string }).error).toMatch(/looks like production/)
+    }
+  })
+
+  it('opens its own collections and settings only to people access lets in, and never to API writes', async () => {
+    for (const options of [{ allow: () => true, access: () => false }, { allow: () => false, access: () => true }]) {
+      const { config, coll } = setup(options)
+      for (const slug of ['sandbox-batches', 'sandbox-records', 'seed-marker']) {
+        const access = coll(slug).access as Record<string, Fn>
+        expect([slug, await access.read!({ req: { user: { id: 'u' } } })]).toEqual([slug, false])
+      }
+      const settings = config.globals!.find((g) => g.slug === 'seed-settings')!.access as Record<string, Fn>
+      expect(await settings.read!({ req: { user: { id: 'u' } } })).toBe(false)
+      expect(await settings.update!({ req: { user: { id: 'u' } } })).toBe(false)
+    }
+    const { coll } = setup({ allow: () => true, access: () => true })
+    expect(await (coll('sandbox-batches').access as Record<string, Fn>).read!({ req: { user: null } })).toBe(false)
+    expect(await (coll('sandbox-batches').access as Record<string, Fn>).read!({ req: { user: { id: 'u' } } })).toBe(true)
+    for (const slug of ['sandbox-batches', 'sandbox-records', 'seed-marker']) {
+      const access = coll(slug).access as Record<string, Fn>
+      expect([slug, access.create!({}), access.update!({})]).toEqual([slug, false, false])
+    }
+    for (const slug of ['sandbox-records', 'seed-marker']) expect((coll(slug).access as Record<string, Fn>).delete!({})).toBe(false)
+  })
+
+  it('lets only the seed set the marker and batch id, and nobody change the marker', () => {
+    const { coll } = setup({ allow: () => true, access: () => true })
+    for (const slug of ['animals', 'groups', 'users']) {
+      const fields = coll(slug).fields as { name?: string; access?: Record<string, Fn> }[]
+      const marker = fields.find((f) => f.name === 'sandbox')!.access!
+      const batch = fields.find((f) => f.name === 'sandboxBatch')!.access!
+      for (const context of [{}, { sandbox: undefined }, undefined]) {
+        expect(marker.create!({ req: { context } })).toBe(false)
+        expect(batch.create!({ req: { context } })).toBe(false)
+        expect(batch.update!({ req: { context } })).toBe(false)
+      }
+      expect(marker.create!({ req: { context: { sandbox: { batch: 'b' } } } })).toBe(true)
+      expect(marker.update!({ req: { context: { sandbox: { batch: 'b' } } } })).toBe(false)
+      expect(batch.update!({ req: { context: { sandbox: { batch: 'b' } } } })).toBe(true)
+    }
+  })
+})
+
+describe('guard edges (test audit 2026-11-10)', () => {
+  const payloadWith = (db: unknown, extra: object = {}) => ({ db, ...extra }) as unknown as Payload
+  const ok = { allow: () => true }
+
+  it('reads production in any case, from the adapter’s own name and from Postgres pools, and exempts only the exact name listed', () => {
+    expect(() => assertConfigAllowed(payloadWith({ url: 'mongodb://h/MyApp_PROD' }), ok)).toThrow(/production/)
+    expect(() => assertConfigAllowed(payloadWith({ url: 'mongodb://h/test', connection: { name: 'live-prod' } }), ok)).toThrow(/production/)
+    expect(() => assertConfigAllowed(payloadWith({ poolOptions: { connectionString: 'postgres://u:p@h:5432/shop_prod' } }), ok)).toThrow(/production/)
+    expect(() => assertConfigAllowed(payloadWith({ url: 'mongodb://h/prod' }), { ...ok, allowDatabases: ['prod-copy', 'PROD'] })).toThrow(/production/)
+    expect(() => assertConfigAllowed(payloadWith({ url: 'not a url' }), ok)).toThrow(/can’t be read/)
+    expect(() => assertConfigAllowed(payloadWith({ url: 'mongodb://h/test' }), { allow: () => undefined as never })).toThrow(/not allowed/)
+  })
+
+  it('refuses when the host can’t be read, before reading any marker', async () => {
+    let read = false
+    const p = payloadWith({ connection: { name: 'test' } }, { find: async () => { read = true; return { docs: [{ database: 'test', host: null }] } } })
+    await expect(assertAllowed(p, ok)).rejects.toThrow(/host can’t be read/)
+    expect(read).toBe(false)
+  })
+
+  it('refuses when assertQuiet rejects asynchronously, and isAllowed says no for every refusal', async () => {
+    const { isAllowed } = await import('../src/index.js')
+    const marked = (url: string) => payloadWith({ url }, { find: async () => ({ docs: [{ database: 'test', host: 'h' }] }) })
+    await expect(assertAllowed(marked('mongodb://h/test'), { ...ok, assertQuiet: async () => { throw new Error('webhooks are on') } })).rejects.toThrow(/webhooks are on/)
+    expect(await isAllowed(marked('mongodb://h/test'), ok)).toBe(true)
+    expect(await isAllowed(marked('mongodb://h/test'), {})).toBe(false)
+    expect(await isAllowed(marked('mongodb://h/prod'), ok)).toBe(false)
+    expect(await isAllowed(payloadWith({ url: 'mongodb://h/test' }, { find: async () => { throw new Error('down') } }), ok)).toBe(false)
+  })
+
+  it('never marks production, an unreadable host, or a database whose name wasn’t typed, and writes nothing when it refuses', async () => {
+    const { markTestDatabase } = await import('../src/index.js')
+    let wrote = false
+    const p = (db: unknown) => payloadWith(db, { find: async () => ({ docs: [] }), create: async () => { wrote = true; return {} } })
+    await expect(markTestDatabase(p({ url: 'mongodb://h/prod' }), ok, { confirm: 'prod' })).rejects.toThrow(/production/)
+    await expect(markTestDatabase(p({ url: 'mongodb://h/test' }), {}, { confirm: 'test' })).rejects.toThrow(/not allowed/)
+    await expect(markTestDatabase(p({ connection: { name: 'test' } }), ok, { confirm: 'test' })).rejects.toThrow(/host can’t be read/)
+    await expect(markTestDatabase(p({ url: 'mongodb://h/test' }), ok, { confirm: 'TEST' })).rejects.toThrow(/type the database name/)
+    expect(wrote).toBe(false)
+  })
+})
