@@ -1,6 +1,6 @@
 {
   "name": "@captiveorigins/payload-plugin-seed",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Seed for Payload: realistic test data at scale, written with Claude",
   "homepage": "https://github.com/CaptiveOrigins/payload-plugin-seed#readme",
   "bugs": {
