@@ -1,5 +1,6 @@
 import type { CollectionConfig, Config, Endpoint, Field, Plugin } from 'payload'
 
+import { exactlyTrue, exactlyTrueNow } from './access.js'
 import { assertAllowed, assertConfigAllowed, markerSlug, SeedRefused } from './guard.js'
 import { writePlan } from './plans.js'
 import { removeSeed } from './remove.js'
@@ -43,8 +44,13 @@ export const seedPlugin =
       if (!c) throw new Error(`Seed: bulkRemove names “${slug}”, which isn't a collection.`)
       if (c.versions) throw new Error(`Seed: “${slug}” keeps versions, so it can't be removed in bulk (its version records would be left behind). Remove it from bulkRemove.`)
     }
-    const allowedNow = Boolean(options.allow?.())
-    const access = async ({ req }: { req: Parameters<NonNullable<SeedOptions['access']>>[0] }) => Boolean(allowedNow && req.user && (await options.access?.(req)))
+    // Both need an exact `true`: a truthy value (an environment string 'false', say) or a throw is a no.
+    const allow = options.allow
+    const allowedNow = allow ? exactlyTrueNow(allow) : false
+    const access = async ({ req }: { req: Parameters<NonNullable<SeedOptions['access']>>[0] }) => {
+      const ask = options.access
+      return Boolean(allowedNow && req.user && ask) && (await exactlyTrue(() => ask!(req)))
+    }
     const endpoints: Endpoint[] = [
       {
         // Writes a plan to review; nothing is generated yet. The plan is stored as a batch waiting to run.

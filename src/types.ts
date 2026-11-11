@@ -96,13 +96,15 @@ export type AiRequest = { system: string; prompt: string; schema: Record<string,
 
 export type SeedOptions = {
   /**
-   * Where the sandbox may run. Required: without it, or when it returns false, the
-   * plugin only refuses sandbox data (install it the same way in production).
+   * Where the sandbox may run. Required: without it, or when it returns anything but exactly
+   * `true`, the plugin only refuses sandbox data (install it the same way in production).
+   * Compare an environment variable yourself (`process.env.SEED_ALLOW === 'true'`): the raw
+   * string, even `'false'`, is a no, and so is a thrown error.
    */
   allow?: () => boolean
   /** Database names allowed even though they look like production (/prod/i). Default none. */
   allowDatabases?: string[]
-  /** Who may plan, run and remove sandboxes (default: nobody). */
+  /** Who may plan, run and remove sandboxes (default: nobody). Only an exact `true` lets someone in; a truthy value or a thrown error is a no (403). */
   access?: (req: PayloadRequest) => boolean | Promise<boolean>
   /** Collections never generated (in addition to the plugin's own). */
   exclude?: string[]

@@ -2,6 +2,7 @@ import { DefaultTemplate } from '@payloadcms/next/templates'
 import type { AdminViewServerProps, Payload, PayloadRequest } from 'payload'
 import React from 'react'
 
+import { exactlyTrue } from '../access.js'
 import { SeedPanel } from '../client/SeedPanel.js'
 
 type Props = AdminViewServerProps & { seedAccess?: (req: PayloadRequest) => boolean | Promise<boolean>; seedOnly?: string[]; seedHidden?: string[] }
@@ -12,7 +13,8 @@ const INTERNAL = /^(payload-|sandbox-)/
 export async function SeedView({ initPageResult, params, searchParams, seedAccess, seedOnly, seedHidden }: Props) {
   const { req, permissions, visibleEntities, locale } = initPageResult
   const { payload } = req
-  const allowed = Boolean(req.user && (await seedAccess?.(req)))
+  // Only an exact `true` from `access` shows the panel; a truthy value or a throw shows the refusal.
+  const allowed = Boolean(req.user && seedAccess) && (await exactlyTrue(() => seedAccess!(req)))
   return (
     <DefaultTemplate i18n={req.i18n} locale={locale} params={params} payload={payload} permissions={permissions} req={req} searchParams={searchParams} user={req.user ?? undefined} visibleEntities={visibleEntities}>
       <div className="gutter--left gutter--right" style={{ paddingBlock: 'calc(var(--base) * 2)' }}>

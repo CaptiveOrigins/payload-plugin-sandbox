@@ -2,6 +2,15 @@
 
 Kept by this repo's owning session, per `~/Code/CLAUDE.md` "Test self-audits". Newest first.
 
+## 2026-11-11: only an exact `true` from `allow()` and `access`
+
+Suite: 94 tests before, 99 after (`npx vitest run`, with the local MongoDB test container on 127.0.0.1:27018 for the integration file). From an access sweep.
+
+- **The change.** `src/access.ts`: `exactlyTrue` (async) and `exactlyTrueNow` (for `allow()`, which must answer at once). Only `true` passes; a throw is a no. `allow()` was read as truthy in the guard (`assertConfigAllowed`), in the plugin's `allowedNow` (admin, endpoints, collections, settings) and so in every check built on them, so `allow: () => process.env.SEED_ALLOW` with the string `'false'` let seeding run. `access` was truthy in the endpoint and collection gate and in the admin view. A throw from `allow()` was a crash at start-up or a 500; it's now a refusal. The database-name and test-database marker checks are unchanged.
+- **Tests.** In `core.test.ts`, "only an exact true from allow() and access": the guard refuses `'false'`, `'true'`, `1`, `{}`, a promise of `true` and a throw, and still refuses a production-looking name after `true`; the same answers from `allow()` hide the admin and get 403 from all five endpoints, before touching the database, and refuse collection reads; `access` answering those (and a rejection) gets 403 everywhere and no collection, delete or settings access, while `true` (async too) gets in. In `view.test.ts`, the Seed admin view shows its panel only for an exact `true`, and not when signed out or without `access`.
+- **Mutation checks.** 9 mutations, each a Python string replace restored byte for byte (SHA-256 checked), each run against the full suite. All 9 fail it: truthy passing and errors rethrown in both helpers; the old truthy `allow()` in the guard and in the plugin; the old truthy `access` in the plugin and in the view; the database-name check removed.
+- **Skipped.** The admin view is checked through its element tree with Payload's admin shell stubbed and the client panel mocked, not rendered in a real admin.
+
 ## 2026-11-10: first audit
 
 Suite before: 82 tests. After: 94 tests (`npx vitest run`; the integration file needs the local MongoDB test container on 127.0.0.1:27018, or `MONGODB_URL`). No `docs/decisions.md` yet, so the promises come from the README, `CHANGELOG.md` and code comments. The guard and the markers come first: Seed must never write to production and must only ever remove what it marked.

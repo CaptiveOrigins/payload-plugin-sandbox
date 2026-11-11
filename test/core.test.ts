@@ -322,3 +322,61 @@ describe('guard edges (test audit 2026-11-10)', () => {
     expect(wrote).toBe(false)
   })
 })
+
+describe('only an exact true from allow() and access (test audit 2026-11-11)', () => {
+  type Handler = (req: unknown) => Promise<Response>
+  type Fn = (args: unknown) => unknown
+  const payloadWith = (url: string) => ({ db: { url } }) as unknown as Payload
+  /** Truthy answers that aren't `true`, and a throw: an environment string 'false' is the one that bites. */
+  const NOT_TRUE: [string, () => unknown][] = [
+    ["'false'", () => 'false'],
+    ["'true'", () => 'true'],
+    ['1', () => 1],
+    ['an object', () => ({})],
+    ['a promise of true', async () => true],
+    ['a thrown error', () => {
+      throw new Error('settings store down')
+    }],
+  ]
+  const untouchable = new Proxy({}, { get: (_, key) => { throw new Error(`touched payload.${String(key)}`) } })
+  const setup = (options: Parameters<typeof seedPlugin>[0]) => {
+    const config = seedPlugin(options)({ collections: [animals, groups, users] } as never) as Config
+    const coll = (slug: string) => config.collections!.find((c) => c.slug === slug)!
+    const endpoints = Object.fromEntries((coll('sandbox-batches').endpoints as { path: string; handler: Handler }[]).map((e) => [e.path, e.handler]))
+    return { config, coll, endpoints }
+  }
+
+  it('refuses the guard unless allow() returns exactly true', () => {
+    for (const [what, answer] of NOT_TRUE) expect(() => assertConfigAllowed(payloadWith('mongodb://h/test'), { allow: answer as never }), what).toThrow(/not allowed/)
+    expect(() => assertConfigAllowed(payloadWith('mongodb://h/test'), { allow: () => true })).not.toThrow()
+  })
+
+  it('keeps the database-name check after an exact true', () => {
+    expect(() => assertConfigAllowed(payloadWith('mongodb://h/shop_prod'), { allow: () => true })).toThrow(/production/)
+  })
+
+  it('hides the admin and refuses every endpoint and collection read where allow() says anything but true', async () => {
+    for (const [what, answer] of NOT_TRUE) {
+      const { config, coll, endpoints } = setup({ allow: answer as never, access: () => true })
+      expect(config.admin?.components?.views?.seed, what).toBeUndefined()
+      for (const [path, handler] of Object.entries(endpoints)) expect([what, path, (await handler({ user: { id: 'u' }, payload: untouchable, json: async () => ({}) })).status]).toEqual([what, path, 403])
+      expect(await (coll('sandbox-batches').access as Record<string, Fn>).read!({ req: { user: { id: 'u' } } }), what).toBe(false)
+    }
+    const { config } = setup({ allow: () => true, access: () => true })
+    expect(config.admin?.components?.views?.seed).toBeDefined()
+  })
+
+  it('refuses every endpoint and collection read with 403 where access says anything but true, a throw included', async () => {
+    const answers: [string, () => unknown][] = [...NOT_TRUE.filter(([w]) => w !== 'a promise of true'), ['a rejected promise', async () => { throw new Error('roles store down') }]]
+    for (const [what, answer] of answers) {
+      const { coll, config, endpoints } = setup({ allow: () => true, access: answer as never })
+      for (const [path, handler] of Object.entries(endpoints)) expect([what, path, (await handler({ user: { id: 'u' }, payload: untouchable, json: async () => ({}) })).status]).toEqual([what, path, 403])
+      for (const slug of ['sandbox-batches', 'sandbox-records', 'seed-marker']) expect([what, slug, await (coll(slug).access as Record<string, Fn>).read!({ req: { user: { id: 'u' } } })]).toEqual([what, slug, false])
+      expect(await (coll('sandbox-batches').access as Record<string, Fn>).delete!({ req: { user: { id: 'u' } } }), what).toBe(false)
+      const settings = config.globals!.find((g) => g.slug === 'seed-settings')!.access as Record<string, Fn>
+      expect(await settings.update!({ req: { user: { id: 'u' } } }), what).toBe(false)
+    }
+    const { coll } = setup({ allow: () => true, access: async () => true })
+    expect(await (coll('sandbox-batches').access as Record<string, Fn>).read!({ req: { user: { id: 'u' } } })).toBe(true)
+  })
+})

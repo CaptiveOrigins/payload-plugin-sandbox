@@ -60,7 +60,7 @@ Globals are planned too (`globals`: existing or skipped, with a reason; the seed
 
 Three checks, each failing closed. A refusal says which one failed.
 
-1. `allow()` is required; without it, or when it returns false, nothing is generated and the admin is hidden.
+1. `allow()` is required, and only an answer of exactly `true` counts. Without it, or when it returns anything else (`false`, the string `'false'` from an environment variable, `1`, a promise, or an error thrown), nothing is generated and the admin is hidden. Compare an environment variable yourself: `allow: () => process.env.SEED_ALLOW === 'true'`.
 2. The database name must be readable and must not contain "prod", unless it's listed in `allowDatabases`.
 3. The database must be marked as a test database, for its own name and host. A person does this once, typing the database name to confirm:
 
@@ -140,6 +140,7 @@ Where seeding is allowed, the admin gets a **Seed** area: write a plan, read it,
 
 - **Plans.** A plan says which collections to fill, with sample wording and people. With `ai` set, a model writes it (it sees the shape of your schema, never documents; everything it returns is checked against the schema). Without it, or if it fails, you get a plain plan. Nothing is created until you press Run.
 - **People.** Personas are fictional accounts with a story of what to try. Give your own (`personas`), let AI plans suggest more, and turn their `traits` into roles in a recipe (`ctx.persona`).
+- **Who gets in.** `access` must answer exactly `true` for a signed-in person. Anything else, a thrown error included, is a 403 from every Seed endpoint, no Seed collections or settings, and "You don’t have access to Seed" in the admin.
 - **Sign in as.** A real session as a seeded account, for whoever `access` allows, wherever seeding is allowed. Only accounts Seed made qualify; real accounts are out of reach.
 - **Long runs.** Set `defer` (in Next.js, `(task) => after(task)`) and the admin doesn't wait; for runs longer than a request may last, call `runSeed` from a script.
 

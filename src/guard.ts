@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 
+import { exactlyTrueNow } from './access.js'
 import type { SeedOptions } from './types.js'
 
 export class SeedRefused extends Error {
@@ -42,11 +43,13 @@ export function databaseHost(payload: Payload): string | null {
 }
 
 /**
- * The first two checks, which need no database read: `allow()` says so, and the database
+ * The first two checks, which need no database read: `allow()` returns exactly `true`, and the database
  * name is readable and doesn't look like production (unless listed in `allowDatabases`).
  */
 export function assertConfigAllowed(payload: Payload, options: SeedOptions): void {
-  if (!options.allow?.()) throw new SeedRefused('Seeding is not allowed in this environment (allow() is missing or false).')
+  // Only an exact `true`: an environment string such as 'false', any other truthy value, or a throw is a no.
+  const allow = options.allow
+  if (!allow || !exactlyTrueNow(allow)) throw new SeedRefused('Seeding is not allowed in this environment (allow() is missing or didn’t return true).')
   const name = databaseName(payload)
   if (!name) throw new SeedRefused('Refusing to seed: the database name can’t be read, so it can’t be checked.')
   if (/prod/i.test(name) && !(options.allowDatabases ?? []).includes(name)) throw new SeedRefused(`Refusing to write seed data to database “${name}”: it looks like production.`)
@@ -54,7 +57,7 @@ export function assertConfigAllowed(payload: Payload, options: SeedOptions): voi
 
 /**
  * Throws unless seeding may run here. Three independent checks, each failing closed:
- * 1. `allow()` returns true;
+ * 1. `allow()` returns exactly `true` (a truthy value such as the string 'false' is a no);
  * 2. the database name is readable and doesn't look like production;
  * 3. the database carries a test-database marker written for this database name on this host
  *    (`markTestDatabase`), so a copy restored elsewhere doesn't count.
