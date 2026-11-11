@@ -31,6 +31,16 @@ export default buildConfig({
 
 Run it from a script (`runSeed(payload, options, { seed: 'demo', collections: ['animals'] })`, dependencies added automatically) or `POST /api/sandbox-batches/run`; remove with `removeSeed(payload, options, { batch })` or `POST /api/sandbox-batches/remove`. Each batch stores a coverage report per collection and every refused document with the reason.
 
+## On its own, and with others
+
+**On its own.** Seed needs Payload 3.80 or later with its Next.js admin, and a test database marked once with `markTestDatabase()`. Claude is optional (`@anthropic-ai/sdk` and a key); without it, text comes from word lists. It doesn't use any other Captive Origins plugin.
+
+**Works with:**
+
+- **Sample Kits** (`@captiveorigins/payload-plugin-sample-kits`, not on npm yet): pass the same `allow` you gave Seed as Sample Kits' `adapters.seed`. Its `seedKitStory` and `removeKitRecords` then run only where Seed allows seeding. Sample Kits never imports Seed.
+
+**Family.** Seed is in the Staging family, with Sandbox Mode, which is named but not built yet. The families are a working draft that may change.
+
 ## A coverage plan in CI
 
 A seed falls behind the schema quietly: someone adds a field, and the test data never has it. A coverage plan stops that. It says, for every collection, whether the seed generates it (with a plan for every field), refers to it (`existing`) or skips it, each with a reason. `checkCoveragePlan` compares the plan with your Payload config offline, with no database and no key, and lists every gap: a new collection or field without a plan, a skip without a reason, a required field skipped, a select value or field the schema no longer has, a relationship to something the plan doesn't cover.
