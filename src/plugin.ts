@@ -193,8 +193,8 @@ export const seedPlugin =
             ...config.admin,
             components: {
               ...components,
-              afterNavLinks: [...(components.afterNavLinks ?? []), '@captiveorigins/payload-plugin-seed/rsc#SeedNavLink'],
-              views: { ...components.views, seed: { Component: { path: '@captiveorigins/payload-plugin-seed/rsc#SeedView', serverProps: { seedAccess: options.access, seedOnly: options.only, seedHidden: [...(options.exclude ?? []), ...Object.keys(options.existing ?? {})] } }, path: '/seed' } },
+              afterNavLinks: [...(components.afterNavLinks ?? []), '@extantape/payload-plugin-seed/rsc#SeedNavLink'],
+              views: { ...components.views, seed: { Component: { path: '@extantape/payload-plugin-seed/rsc#SeedView', serverProps: { seedAccess: options.access, seedOnly: options.only, seedHidden: [...(options.exclude ?? []), ...Object.keys(options.existing ?? {})] } }, path: '/seed' } },
             },
           }
         : config.admin,

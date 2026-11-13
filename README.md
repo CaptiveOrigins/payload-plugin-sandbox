@@ -1,8 +1,8 @@
-# @captiveorigins/payload-plugin-seed
+# @extantape/payload-plugin-seed
 
 Seed for Payload: realistic test data at scale, written with Claude. **Coverage-first** test data for any [Payload](https://payloadcms.com) site. The plugin reads your schema and fills it in dependency order, so that **every option, empty and full case, and relationship shape appears at least once**, instead of piling up random rows. Every document is marked and registered, so a batch can be removed in one step. It **refuses to run in production**.
 
-**Renamed** from `@captiveorigins/payload-plugin-sandbox` (0.2.x); 0.3.0 is the first version under this name. The old export names (`sandboxPlugin`, `runSandbox`, `removeSandbox` and the rest) are gone: use the `Seed` names. Mark each test database once with `markTestDatabase()` before seeding it (see below). Stored names are unchanged, so earlier batches stay removable: the `sandbox-batches` and `sandbox-records` collections, and the `sandbox` marker. The admin screen moved from `/admin/sandbox` to `/admin/seed`.
+**Renamed** from `@extantape/payload-plugin-sandbox` (0.2.x); 0.3.0 is the first version under this name. The old export names (`sandboxPlugin`, `runSandbox`, `removeSandbox` and the rest) are gone: use the `Seed` names. Mark each test database once with `markTestDatabase()` before seeding it (see below). Stored names are unchanged, so earlier batches stay removable: the `sandbox-batches` and `sandbox-records` collections, and the `sandbox` marker. The admin screen moved from `/admin/sandbox` to `/admin/seed`.
 
 - **Coverage, not volume**: one document per *pairwise* case. Every pair of values of any two fields appears together at least once (5 fields with 2–3 options each: about 15 documents instead of 108), plus deliberate edge cases (accents, CJK, right-to-left text, emoji, quotes, minimum and maximum numbers, long text).
 - **Shapes**: self-references (parents, parent pages, replies) become multi-generation trees with deliberate gaps.
@@ -12,7 +12,7 @@ Seed for Payload: realistic test data at scale, written with Claude. **Coverage-
 - **Safe**: emails use `example.invalid`; generated accounts get random, unstored passwords; images are generated locally (no downloads).
 
 ```ts
-import { seedPlugin } from '@captiveorigins/payload-plugin-seed'
+import { seedPlugin } from '@extantape/payload-plugin-seed'
 
 export default buildConfig({
   plugins: [
@@ -37,7 +37,7 @@ Run it from a script (`runSeed(payload, options, { seed: 'demo', collections: ['
 
 **Works with:**
 
-- **Sample Kits** (`@captiveorigins/payload-plugin-sample-kits`, not on npm yet): pass the same `allow` you gave Seed as Sample Kits' `adapters.seed`. Its `seedKitStory` and `removeKitRecords` then run only where Seed allows seeding. Sample Kits never imports Seed.
+- **Sample Kits** (`@extantape/payload-plugin-sample-kits`, not on npm yet): pass the same `allow` you gave Seed as Sample Kits' `adapters.seed`. Its `seedKitStory` and `removeKitRecords` then run only where Seed allows seeding. Sample Kits never imports Seed.
 
 **Family.** Seed is in the Staging family, with Sandbox Mode, which is named but not built yet. The families are a working draft that may change.
 
@@ -47,7 +47,7 @@ A seed falls behind the schema quietly: someone adds a field, and the test data 
 
 ```ts
 // test/seed-coverage.test.ts
-import { assertCoveragePlan } from '@captiveorigins/payload-plugin-seed'
+import { assertCoveragePlan } from '@extantape/payload-plugin-seed'
 import config from '../src/payload.config'
 import plan from '../seed/coverage-plan'
 
@@ -65,7 +65,7 @@ Three checks, each failing closed. A refusal says which one failed.
 3. The database must be marked as a test database, for its own name and host. A person does this once, typing the database name to confirm:
 
    ```ts
-   import { markTestDatabase } from '@captiveorigins/payload-plugin-seed'
+   import { markTestDatabase } from '@extantape/payload-plugin-seed'
    await markTestDatabase(payload, seedOptions, { confirm: 'test', by: 'who ran it' })
    ```
 
@@ -102,7 +102,7 @@ Turn it off with `audit: false`. The result is on the batch (`report.realism`) a
 For big seeds, `claudeTexts()` writes the text people read (names, titles, notes, bios) with Claude:
 
 ```ts
-import { claudeTexts, fileTextCache, seedPlugin } from '@captiveorigins/payload-plugin-seed'
+import { claudeTexts, fileTextCache, seedPlugin } from '@extantape/payload-plugin-seed'
 
 seedPlugin({
   // ...

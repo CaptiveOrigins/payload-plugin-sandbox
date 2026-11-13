@@ -1,10 +1,10 @@
 {
-  "name": "@captiveorigins/payload-plugin-seed",
+  "name": "@extantape/payload-plugin-seed",
   "version": "0.4.1",
   "description": "Seed for Payload: realistic test data at scale, written with Claude",
-  "homepage": "https://github.com/CaptiveOrigins/payload-plugin-seed#readme",
+  "homepage": "https://github.com/ExtantApe/payload-plugin-seed#readme",
   "bugs": {
-    "url": "https://github.com/CaptiveOrigins/payload-plugin-seed/issues"
+    "url": "https://github.com/ExtantApe/payload-plugin-seed/issues"
   },
   "keywords": [
     "payload",
@@ -19,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CaptiveOrigins/payload-plugin-seed.git"
+    "url": "git+https://github.com/ExtantApe/payload-plugin-seed.git"
   },
   "type": "module",
   "exports": {
