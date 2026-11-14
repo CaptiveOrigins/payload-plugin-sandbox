@@ -10,9 +10,9 @@
 
 ## 0.3.0 (2026-11-10)
 
-The first version published under this name, by hand, from commit e59997e. It holds the rename from `@captiveorigins/payload-plugin-sandbox` 0.2.x and everything below. Notes written earlier for a 0.3.0 with the old names kept as deprecated aliases described a version that was never published: in the published 0.3.0 the old names are gone.
+The first version published under this name, by hand, from commit e59997e. It holds the rename from `payload-plugin-sandbox` 0.2.x and everything below. Notes written earlier for a 0.3.0 with the old names kept as deprecated aliases described a version that was never published: in the published 0.3.0 the old names are gone.
 
-- **Renamed** from `@captiveorigins/payload-plugin-sandbox` to `@captiveorigins/payload-plugin-seed`: exports, the admin area (`/admin/seed`) and wording say Seed. Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker), so earlier batches stay removable.
+- **Renamed** from `payload-plugin-sandbox` to `payload-plugin-seed`: exports, the admin area (`/admin/seed`) and wording say Seed. Stored names are unchanged (`sandbox-batches`, `sandbox-records`, the `sandbox` marker), so earlier batches stay removable.
 
 - **The batch id lives on each seeded document** (`sandboxBatch`, beside the `sandbox` marker) instead of one `sandbox-records` document per record. That saves about 0.4 KB per record, which matters on small database tiers.
   - The default `register` is now `marker`. Set `register: 'records'` to keep the old register.

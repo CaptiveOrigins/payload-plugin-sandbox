@@ -33,7 +33,7 @@ Run it from a script (`runSeed(payload, options, { seed: 'demo', collections: ['
 
 ## On its own, and with others
 
-**On its own.** Seed needs Payload 3.80 or later with its Next.js admin, and a test database marked once with `markTestDatabase()`. Claude is optional (`@anthropic-ai/sdk` and a key); without it, text comes from word lists. It doesn't use any other Captive Origins plugin.
+**On its own.** Seed needs Payload 3.80 or later with its Next.js admin, and a test database marked once with `markTestDatabase()`. Claude is optional (`@anthropic-ai/sdk` and a key); without it, text comes from word lists. It doesn't use any other plugin.
 
 **Works with:**
 
