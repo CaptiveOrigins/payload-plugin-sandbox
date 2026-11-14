@@ -153,7 +153,7 @@ Each image field points at one shared copy per kind (silhouettes, a small set of
 
 ## 14. Decisions
 
-Owner, 2026-11-09, in Helm's chat, relayed word for word. Asked together as "species mix from Seed World's weights (editable in the admin); people's settings mostly default; Opus 5.5 plans, Haiku 5.5 fills; $10 spend cap per run; CI's small seed uses word lists only. Accept all?". Answer: "Accept all (Recommended)".
+2026-11-09: the owner accepted these together: the species mix from the seed weights (editable in the admin); people's settings mostly default; Opus 5.5 plans, Haiku 5.5 fills; a $10 spend cap per run; CI's small seed uses word lists only.
 
 - **Default models:** Claude Opus 5.5 plans, Claude Haiku 5.5 fills. Both stay settings.
 - **Default spend cap:** $10 per run (`spend.capUSD`).
